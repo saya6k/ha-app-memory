@@ -1,6 +1,6 @@
 ---
 name: Memory
-version: 0.1.0
+version: dev
 slug: memory
 description: >-
   Personal fact memory for Assist conversation agents over MCP. Stores facts
