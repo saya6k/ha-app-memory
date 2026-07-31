@@ -8,5 +8,7 @@ data
 # Store assets and docs — read by the Supervisor from the add-on folder,
 # never needed inside the image.
 icon.png
-icon.svg
+logo.png
+.README.j2
+translations/
 DOCS.md
