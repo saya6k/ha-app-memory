@@ -1,0 +1,85 @@
+#!/command/with-contenv bashio
+# shellcheck shell=bash
+# ==============================================================================
+# Local embedding sidecar (upstream llama.cpp). Bound to a unix domain socket,
+# not a TCP port: there is no address it could be exposed on, so "never
+# network-reachable" holds by construction rather than by config (SPEC §8 Never).
+# ==============================================================================
+set -euo pipefail
+
+readonly MODEL_DIR=/data/models
+readonly SOCKET_DIR=/run/llama
+readonly SOCKET=/run/llama/embed.sock
+
+# shellcheck source=/dev/null
+source /usr/lib/ha-memory/options.sh
+
+model_file="$(option model_file)"
+threads="$(option threads)"
+model="${MODEL_DIR}/${model_file}"
+
+# The model-download oneshot ran first (see dependencies.d) and this service is
+# not reached unless it succeeded, so the file is guaranteed present here.
+if [[ ! -f "${model}" ]]; then
+    bashio::log.fatal "Model missing at ${model} — model-download should have provided it."
+    exit 1
+fi
+
+# Map the add-on log level onto llama.cpp's -lv threshold, where messages with a
+# *higher* verbosity than N are dropped:
+#   0 generic  1 error  2 warning  3 info  4 trace  5 debug
+# Note --verbose is not used: it sets the threshold to INT_MAX, which dumps a
+# per-tensor trace of the whole model on every start.
+case "$(option log_level)" in
+    fatal)           llama_verbosity=0 ;;
+    error)           llama_verbosity=1 ;;
+    warning)         llama_verbosity=2 ;;
+    notice | info)   llama_verbosity=3 ;;
+    debug)           llama_verbosity=4 ;;
+    trace)           llama_verbosity=5 ;;
+    *)               llama_verbosity=3 ;;
+esac
+
+export LD_LIBRARY_PATH=/opt/llama
+
+# /run is tmpfs, so this is recreated on every boot. 0700 root-owned: the socket
+# is the only door to the sidecar and only our own services may open it.
+mkdir -p "${SOCKET_DIR}"
+chmod 0700 "${SOCKET_DIR}"
+rm -f "${SOCKET}"
+umask 0077
+
+# llama-server binds a unix socket when --host ends in .sock (--port is ignored).
+#
+# Everything below --ctx-size trims defaults that are meant for text generation
+# and are pure waste for an embeddings-only sidecar. They matter: with the stock
+# defaults this peaks around 1.6 GiB and gets OOM-killed (SIGKILL) on a 4-8 GiB
+# Home Assistant device once other add-ons are running.
+#
+#   --parallel 1       one request at a time; the default of 4 slots multiplies
+#                      the KV cache by 4 (224 MiB -> 56 MiB)
+#   --cache-ram 0      disables the prompt cache, which otherwise reserves up to
+#                      8 GiB. Embeddings never reuse a prompt prefix.
+#   --no-repack        skips the repacked copy of the weights (~446 MiB of
+#                      non-reclaimable memory). Costs some matmul speed; on this
+#                      hardware staying alive is worth more.
+#   --no-warmup        no dummy decode at startup — pointless for embeddings
+#   --no-context-shift no sliding window; inputs longer than the context should
+#                      fail loudly instead of being silently truncated
+#   --no-webui         we only ever call /v1/embeddings and /health
+bashio::log.info "Starting embedding sidecar on ${SOCKET} (threads=${threads})"
+exec /opt/llama/llama-server \
+    --model "${model}" \
+    --embeddings \
+    --host "${SOCKET}" \
+    --threads "${threads}" \
+    --ctx-size 2048 \
+    --batch-size 512 \
+    --ubatch-size 512 \
+    --parallel 1 \
+    --cache-ram 0 \
+    --no-repack \
+    --no-warmup \
+    --no-context-shift \
+    --no-webui \
+    --verbosity "${llama_verbosity}"

@@ -1,0 +1,41 @@
+#!/command/with-contenv bashio
+# shellcheck shell=bash
+# ==============================================================================
+# Take down the S6 supervision tree when this service dies, so a broken sidecar
+# stops the add-on with a visible error instead of restart-looping forever while
+# the MCP endpoint keeps serving a half-working state.
+# ==============================================================================
+declare exit_code_container
+exit_code_container="$(</run/s6-linux-init-container-results/exitcode)"
+readonly exit_code_container
+readonly exit_code_service="${1}"
+readonly exit_code_signal="${2}"
+
+bashio::log.info \
+    "Service llama-server exited with code ${exit_code_service}" \
+    "(by signal ${exit_code_signal})"
+
+if [[ "${exit_code_service}" -eq 256 ]]; then
+    # Killed by a signal. SIGKILL (9) cannot be caught, so it is not a crash —
+    # something outside the process killed it, and on this workload that is
+    # almost always the kernel OOM killer.
+    if [[ "${exit_code_signal}" -eq 9 ]]; then
+        bashio::log.fatal "The embedding sidecar was killed with SIGKILL (9)."
+        bashio::log.fatal "This is almost always the out-of-memory killer."
+        bashio::log.fatal "Free up memory on the host, or switch to a smaller"
+        bashio::log.fatal "model via the model_repo / model_file / model_sha256"
+        bashio::log.fatal "options (and match embedding_dimensions to it)."
+    fi
+
+    if [[ "${exit_code_container}" -eq 0 ]]; then
+        echo $((128 + exit_code_signal)) > /run/s6-linux-init-container-results/exitcode
+    fi
+    # Halt on ANY signal, not just SIGTERM. Restarting after a SIGKILL just
+    # reproduces the same kill in a loop and buries the cause in the log.
+    exec /run/s6/basedir/bin/halt
+elif [[ "${exit_code_service}" -ne 0 ]]; then
+    if [[ "${exit_code_container}" -eq 0 ]]; then
+        echo "${exit_code_service}" > /run/s6-linux-init-container-results/exitcode
+    fi
+    exec /run/s6/basedir/bin/halt
+fi

@@ -1,0 +1,14 @@
+.agents/memory/
+# Claude Code local files (set up symlinks manually)
+CLAUDE.md
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+# Node
+node_modules/
+dist/
+# Local add-on data (models, sqlite) — never committed
+data/
+*.gguf
+*.sqlite
+*.sqlite-*
+.DS_Store

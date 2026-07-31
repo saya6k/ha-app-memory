@@ -1,0 +1,50 @@
+#!/command/with-contenv bashio
+# shellcheck shell=bash
+# ==============================================================================
+# MCP server (streamable HTTP at /mcp), consumed by HA Assist.
+# ==============================================================================
+set -euo pipefail
+
+# s6 dependencies order *starts*, not readiness. On first boot the sidecar is
+# still downloading the model before it binds, so poll generously (30 min).
+readonly SOCKET=/run/llama/embed.sock
+
+# shellcheck source=/dev/null
+source /usr/lib/ha-memory/options.sh
+
+ready=0
+bashio::log.info "Waiting for the embedding sidecar to become ready …"
+for _ in $(seq 1 900); do
+    if curl -sf --max-time 2 --unix-socket "${SOCKET}" \
+        http://localhost/health > /dev/null 2>&1; then
+        ready=1
+        break
+    fi
+    sleep 2
+done
+
+if [[ "${ready}" -ne 1 ]]; then
+    bashio::log.fatal "Embedding sidecar did not become ready within 30 minutes."
+    bashio::log.fatal "Check the llama-server logs above for a download or model-load failure."
+    exit 1
+fi
+bashio::log.info "Embedding sidecar is ready."
+
+export DB_PATH=/data/facts.sqlite
+export MCP_PORT=8099
+export EMBEDDING_BASE_URL=http://localhost
+export EMBEDDING_SOCKET_PATH="${SOCKET}"
+EMBEDDING_MODEL="$(option model_file)"
+EMBEDDING_DIMENSIONS="$(option embedding_dimensions)"
+export EMBEDDING_MODEL EMBEDDING_DIMENSIONS
+
+# log_level is optional; leave the variable unset so the app applies its own
+# default rather than parsing an empty string.
+log_level="$(option log_level)"
+if [[ -n "${log_level}" ]]; then
+    export LOG_LEVEL="${log_level}"
+fi
+
+bashio::log.info "Starting MCP server on 0.0.0.0:8099 (/mcp)"
+cd /opt/mcp-server
+exec node dist/index.js

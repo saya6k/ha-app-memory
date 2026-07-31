@@ -1,0 +1,146 @@
+---
+name: Upstream check
+
+# Both upstreams are pinned to an exact version so nothing moves under us on a
+# rebuild. This keeps the pins from going stale: one pull request per upstream
+# when a newer release exists, so each bump is reviewed rather than silently
+# picked up.
+
+# yamllint disable-line rule:truthy
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  llama-cpp:
+    name: Check llama.cpp
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          token: ${{ secrets.CATALOG_PAT }}
+
+      - name: Check for new release
+        env:
+          GH_TOKEN: ${{ secrets.CATALOG_PAT }}
+        run: |
+          set -euo pipefail
+          CURRENT=$(sed -n 's/^ARG LLAMA_BUILD=//p' memory/Dockerfile)
+          LATEST=$(gh release view --repo ggml-org/llama.cpp --json tagName --jq .tagName)
+          echo "Latest : $LATEST"
+          echo "Current: $CURRENT"
+          [ -n "$CURRENT" ] || { echo "::error::ARG LLAMA_BUILD not found"; exit 1; }
+          [ "$LATEST" = "$CURRENT" ] && echo "Up to date." && exit 0
+
+          gh pr list --head "upstream/llama-cpp-${LATEST}" --json number --jq 'length' \
+            | grep -qv '^0$' && echo "PR already open." && exit 0
+
+          # Digests come from the release API rather than being recomputed, so
+          # the pin records exactly what GitHub serves.
+          ASSETS=$(gh release view "$LATEST" --repo ggml-org/llama.cpp \
+            --json assets --jq '.assets[] | "\(.name) \(.digest)"')
+          for arch in arm64 x64; do
+            name="llama-${LATEST}-bin-ubuntu-${arch}.tar.gz"
+            digest=$(printf '%s\n' "$ASSETS" | awk -v n="$name" '$1 == n {print $2}')
+            digest="${digest#sha256:}"
+            [ -n "$digest" ] || { echo "::error::$name has no digest"; exit 1; }
+            eval "SHA_${arch}=\$digest"
+          done
+
+          sed -i \
+            -e "s|^ARG LLAMA_BUILD=.*|ARG LLAMA_BUILD=${LATEST}|" \
+            -e "s|^ARG LLAMA_SHA256_AARCH64=.*|ARG LLAMA_SHA256_AARCH64=${SHA_arm64}|" \
+            -e "s|^ARG LLAMA_SHA256_AMD64=.*|ARG LLAMA_SHA256_AMD64=${SHA_x64}|" \
+            memory/Dockerfile
+          git diff --quiet memory/Dockerfile && \
+            { echo "::error::nothing changed — ARG lines may have been renamed"; exit 1; }
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git switch -c "upstream/llama-cpp-${LATEST}"
+          git add memory/Dockerfile
+          git commit -m "chore: bump llama.cpp ${CURRENT} → ${LATEST}"
+          git push origin "upstream/llama-cpp-${LATEST}"
+          gh pr create \
+            --base main --head "upstream/llama-cpp-${LATEST}" \
+            --title "chore: bump llama.cpp ${CURRENT} → ${LATEST}" \
+            --body "$(printf '## Upstream update\n\n[llama.cpp %s](https://github.com/ggml-org/llama.cpp/releases/tag/%s) released. Both sha256 values come from the release API, not recomputed.\n\n> These prebuilt binaries have broken against the base image before — they are built on Ubuntu 24.04 and need GLIBC_2.38, which Debian bookworm lacks. CI builds both arches; check the build-test job before merging.' "${LATEST}" "${LATEST}")" \
+            --assignee saya6k
+
+  npm-native:
+    name: Check sqlite-vec / better-sqlite3
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          token: ${{ secrets.CATALOG_PAT }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: memory/package-lock.json
+
+      - name: Check for new releases
+        id: bump
+        working-directory: memory
+        run: |
+          set -euo pipefail
+          SUMMARY=""
+          # Exact-pinned on purpose: this is the native / loadable-extension
+          # pair, where a bad combination only shows up at runtime on device.
+          for pkg in sqlite-vec better-sqlite3; do
+            CURRENT=$(node -p "require('./package.json').dependencies['${pkg}']")
+            LATEST=$(npm view "$pkg" version)
+            echo "${pkg}: current ${CURRENT}, latest ${LATEST}"
+            if [ "$CURRENT" != "$LATEST" ]; then
+              npm install --save-exact "${pkg}@${LATEST}"
+              SUMMARY="${SUMMARY}${SUMMARY:+, }${pkg} ${CURRENT} → ${LATEST}"
+            fi
+          done
+          if [ -z "$SUMMARY" ]; then
+            echo "Up to date."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "summary=${SUMMARY}" >> "$GITHUB_OUTPUT"
+          fi
+
+      # A native bump that fails the suite must not become a pull request: the
+      # reason these two are pinned at all is that breakage is otherwise only
+      # visible at runtime.
+      - name: Verify
+        if: steps.bump.outputs.changed == 'true'
+        working-directory: memory
+        run: |
+          npm run typecheck
+          npm run lint
+          npm test
+
+      - name: Open pull request
+        if: steps.bump.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.CATALOG_PAT }}
+          SUMMARY: ${{ steps.bump.outputs.summary }}
+        run: |
+          set -euo pipefail
+          BRANCH="upstream/npm-native-$(date -u +%Y%m%d)"
+          gh pr list --head "$BRANCH" --json number --jq 'length' \
+            | grep -qv '^0$' && echo "PR already open." && exit 0
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git add memory/package.json memory/package-lock.json
+          git commit -m "chore: bump ${SUMMARY}"
+          git push origin "$BRANCH"
+          gh pr create \
+            --base main --head "$BRANCH" \
+            --title "chore: bump ${SUMMARY}" \
+            --body "$(printf '## Upstream update\n\n%s\n\nTypecheck, lint and unit tests passed on this branch.\n\n> Both packages are compiled or loaded natively, so a clean unit-test run does not prove the image still builds and starts. Check the build-test and smoke jobs before merging.' "${SUMMARY}")" \
+            --assignee saya6k
