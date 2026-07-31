@@ -1,5 +1,6 @@
 .agents/memory/
-# AI working state — plan/todo are scratch, not project docs
+# AI working state — design notes and plan, not project docs
+SPEC.md
 tasks/
 # Claude Code local files (set up symlinks manually)
 CLAUDE.md
