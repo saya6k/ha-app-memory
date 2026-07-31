@@ -127,9 +127,12 @@
 - [x] repo 생성 + 초기 푸시: https://github.com/saya6k/ha-app-memory (public).
       main 푸시 CI **전 job 통과**(lint 6종 + unit tests). 단 `build test`는 규약상
       main에서 skip되고 PR에서만 실행됨.
-- [ ] **amd64 검증** — linux-test는 `linux/arm64` 전용이고 binfmt 에뮬레이션이 없어 로컬
-      교차 빌드 불가. CI의 `build-test` 매트릭스(amd64 + aarch64)가 이를 대신하며, PR에서만
-      돌기 때문에 릴리스 전 PR로 1회 확인 필요.
+- [x] **amd64 검증 완료** (PR #1, CI run 30631379059) — 로컬은 `linux/arm64` 전용이라
+      불가능했던 검증을 CI `build-test` 매트릭스가 대신함. **두 아키텍처 모두** 이미지 빌드 +
+      풀 컨테이너 스모크 통과:
+      - amd64/aarch64 각각 `Model ready` → `db-migrate up to date` → `tools/list` 6종 →
+        save/get/search/similar/delete 전 경로 `[OK]` → `===== 전부 통과 =====`
+      - 실제 모델 다운로드·실제 임베딩·교차언어 검색까지 포함(목 없음)
 - [ ] T12-old (참고) 확정된 제약:
       - 베이스 `ghcr.io/home-assistant/base-debian:trixie-*` (bookworm 불가), `libgomp1` 설치
       - llama.cpp는 소스 빌드 대신 **공식 릴리스 프리빌트 + sha256 검증** (ha-app-crw의
