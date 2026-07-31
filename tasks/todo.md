@@ -116,9 +116,23 @@
       - **실측: 기동 로그 수천 줄 → 약 30줄**, 유용한 줄(`model loaded`,
         `listening on unix://`, `n_slots = 1`)은 전부 유지
       - 36 tests green (로그 레벨 게이팅 5건 추가), aarch64 스모크 전 항목 통과
-- [ ] **amd64 미검증** — linux-test는 `linux/arm64` 전용이고 binfmt 에뮬레이션이 없어
-      교차 빌드 불가. Dockerfile의 amd64 분기(llama.cpp x64 에셋 sha256, `sqlite-vec-linux-x64`)는
-      정적으로만 확인됨. 실제 amd64 HA 인스턴스나 CI에서 1회 빌드 검증 필요.
+- [x] **CI를 형제 ha-app-* 규약에 맞춤** — `ci.yml`/`build.yml`/`release-drafter.yml`/
+      `upstream-check.yml` 4종 + 공통 설정(.yamllint/.hadolint.yaml/.shellcheckrc/
+      .markdownlint.yaml/.gitattributes). `crw`가 앱 코드+스모크를 가져 템플릿으로 사용,
+      Python 유닛테스트만 Node로 교체. `scripts/smoke.sh`는 crw처럼 이미지 태그를 인자로
+      받도록(미지정 시 직접 빌드).
+      - CI에서 터졌을 2건 선제 수정: yamllint가 `node_modules` 스캔(→ `.yamllint` ignore),
+        shellcheck SC2155(→ finish 2곳 declare/assign 분리).
+      - `config.yaml`의 `version:`을 `dev`로 — 형제 전체 공통(카탈로그가 실제 버전을 핀함).
+- [x] repo 생성 + 초기 푸시: https://github.com/saya6k/ha-app-memory (public).
+      main 푸시 CI **전 job 통과**(lint 6종 + unit tests). 단 `build test`는 규약상
+      main에서 skip되고 PR에서만 실행됨.
+- [x] **amd64 검증 완료** (PR #1, CI run 30631379059) — 로컬은 `linux/arm64` 전용이라
+      불가능했던 검증을 CI `build-test` 매트릭스가 대신함. **두 아키텍처 모두** 이미지 빌드 +
+      풀 컨테이너 스모크 통과:
+      - amd64/aarch64 각각 `Model ready` → `db-migrate up to date` → `tools/list` 6종 →
+        save/get/search/similar/delete 전 경로 `[OK]` → `===== 전부 통과 =====`
+      - 실제 모델 다운로드·실제 임베딩·교차언어 검색까지 포함(목 없음)
 - [ ] T12-old (참고) 확정된 제약:
       - 베이스 `ghcr.io/home-assistant/base-debian:trixie-*` (bookworm 불가), `libgomp1` 설치
       - llama.cpp는 소스 빌드 대신 **공식 릴리스 프리빌트 + sha256 검증** (ha-app-crw의
