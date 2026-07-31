@@ -16,7 +16,6 @@ the metadata.
 
 - App docs: [memory/DOCS.md](memory/DOCS.md)
 - Design spec: [SPEC.md](SPEC.md)
-- Task plan: [tasks/plan.md](tasks/plan.md)
 
 ## Tools
 

@@ -1,4 +1,6 @@
 .agents/memory/
+# AI working state — plan/todo are scratch, not project docs
+tasks/
 # Claude Code local files (set up symlinks manually)
 CLAUDE.md
 .claude/settings.local.json
