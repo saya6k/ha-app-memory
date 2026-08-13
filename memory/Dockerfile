@@ -25,6 +25,11 @@ FROM ${BUILD_FROM}
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
+# The base image is labeled io.hass.type=base and build-image only stamps
+# io.hass.arch/version, so without this the add-on image inherits "base".
+# Supervisor's own value is "app" (META_ADDON = "addon" is marked legacy).
+LABEL io.hass.type="app"
+
 # ---- llama.cpp (prebuilt release, MIT) ------------------------------------
 ARG LLAMA_BUILD=b10199
 ARG LLAMA_SHA256_AARCH64=31a607f2384e9166f5a4af20c4c9e90d3044e2821bef6f60ed4494f0a7920cc9
