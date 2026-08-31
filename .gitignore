@@ -1,11 +1,15 @@
-.agents/memory/
+# Agent scaffolding (AGENTS.md, .agents/, .claude/, .gemini/, and the
+# CLAUDE.md / GEMINI.md symlinks) is per-developer tooling, not repo content.
+# It stays on disk locally and is never tracked.
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+.agents/
+.claude/
+.gemini/
 # AI working state — design notes and plan, not project docs
 SPEC.md
 tasks/
-# Claude Code local files (set up symlinks manually)
-CLAUDE.md
-.claude/settings.local.json
-.claude/scheduled_tasks.lock
 # Node
 node_modules/
 dist/
