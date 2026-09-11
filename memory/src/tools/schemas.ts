@@ -15,7 +15,8 @@ export const MAX_SEARCH_LIMIT = 20;
 export const searchFactsSchema = {
   query: z.string().min(1),
   filter: z.object({ tags: z.array(z.string()).optional() }).optional(),
-  limit: z.number().int().positive().optional(),
+  // Inclusive bounds survive Home Assistant's OpenAPI schema conversion.
+  limit: z.number().int().min(1).optional(),
 };
 
 export const updateFactSchema = {
@@ -28,7 +29,7 @@ export const updateFactSchema = {
 
 export const similarFactsSchema = {
   id: z.string().min(1),
-  limit: z.number().int().positive().optional(),
+  limit: z.number().int().min(1).optional(),
 };
 
 export const deleteFactSchema = {
