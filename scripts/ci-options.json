@@ -1,6 +1,8 @@
 {
-  "model_repo": "Qwen/Qwen3-Embedding-0.6B-GGUF",
-  "model_file": "Qwen3-Embedding-0.6B-Q8_0.gguf",
-  "embedding_dimensions": 1024,
+  "model_repo": "ggml-org/embeddinggemma-2-GGUF",
+  "model_file": "embeddinggemma-2-Q8_0.gguf",
+  "embedding_dimensions": 768,
+  "query_prefix": "task: search result | query: ",
+  "document_prefix": "title: none | text: ",
   "threads": 4
 }

@@ -14,7 +14,7 @@
 #
 # Env:
 #   CACHE_DIR  where the GGUF model and container /data live (default below).
-#              Keeping it outside the repo means repeat runs skip the ~609 MiB
+#              Keeping it outside the repo means repeat runs skip the ~296 MiB
 #              download.
 #   DOCKER_NET  extra `docker` network flags. Needed on the linux-test machine,
 #              where dockerd runs with --bridge=none: DOCKER_NET=--network=host
@@ -27,7 +27,7 @@ ADDON="${REPO}/memory"
 CACHE_DIR="${CACHE_DIR:-${HOME}/.cache/ha-app-memory-smoke}"
 DOCKER_NET="${DOCKER_NET:---network=host}"
 DATA="${CACHE_DIR}/addon-data"
-MODEL="Qwen3-Embedding-0.6B-Q8_0.gguf"
+MODEL="embeddinggemma-2-Q8_0.gguf"
 IMAGE="${1:-}"
 
 if [ -n "${IMAGE}" ]; then
