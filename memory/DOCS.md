@@ -37,7 +37,7 @@ just re-download hundreds of megabytes every few seconds.
 ## Memory
 
 Measured resident size of the embedding sidecar with the default model, after
-serving a request: **about 890 MiB**. The sidecar is started with flags tuned
+serving a request: **about 910 MiB**. The sidecar is started with flags tuned
 for embeddings (single slot, no prompt cache, no weight repacking); the stock
 llama.cpp generation defaults would use ~1.32 GiB for the same work.
 
