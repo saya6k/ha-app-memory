@@ -31,7 +31,17 @@ jobs:
         run: |
           set -euo pipefail
           CURRENT=$(sed -n 's/^ARG LLAMA_BUILD=//p' memory/Dockerfile)
-          LATEST=$(gh release view --repo ggml-org/llama.cpp --json tagName --jq .tagName)
+          # Not `gh release view`: upstream now marks every bNNNN build as a
+          # prerelease, and "latest" is a periodic vX.Y.Z release that carries
+          # no binaries. Take the newest bNNNN whose ubuntu assets have both
+          # finished uploading.
+          LATEST=$(gh api 'repos/ggml-org/llama.cpp/releases?per_page=30' --jq '
+            [.[] | .tag_name as $t | select($t | test("^b[0-9]+$"))
+              | select(([.assets[].name | select(
+                  . == "llama-\($t)-bin-ubuntu-arm64.tar.gz" or
+                  . == "llama-\($t)-bin-ubuntu-x64.tar.gz")] | length) == 2)
+            ][0].tag_name // empty')
+          [ -n "$LATEST" ] || { echo "::error::no bNNNN release with ubuntu assets found"; exit 1; }
           echo "Latest : $LATEST"
           echo "Current: $CURRENT"
           [ -n "$CURRENT" ] || { echo "::error::ARG LLAMA_BUILD not found"; exit 1; }
