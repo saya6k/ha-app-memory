@@ -1,7 +1,7 @@
-import { EMBEDDING_DIMENSIONS, EMBEDDING_MODEL } from '../config.js';
+import { EMBEDDING_DIMENSIONS, EMBEDDING_DOCUMENT_PREFIX, EMBEDDING_MODEL } from '../config.js';
 import type { EmbeddingClient } from '../embedding/types.js';
 import { openDb, type DbConnection } from './client.js';
-import { META_EMBEDDING_MODEL } from './schema.js';
+import { META_DOCUMENT_PREFIX, META_EMBEDDING_MODEL } from './schema.js';
 
 export type MigrationStatus = 'up-to-date' | 'migrated';
 
@@ -14,20 +14,26 @@ export interface MigrationResult {
 
 interface StoredState {
   model: string | undefined;
+  documentPrefix: string;
   dimensions: number | undefined;
 }
 
-function readState(db: DbConnection): StoredState {
-  const meta = db.prepare('SELECT value FROM meta WHERE key = ?').get(META_EMBEDDING_MODEL) as
+function readMeta(db: DbConnection, key: string): string | undefined {
+  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(key) as
     | { value: string }
     | undefined;
+  return row?.value;
+}
+
+function readState(db: DbConnection): StoredState {
   const ddl = db.prepare("SELECT sql FROM sqlite_master WHERE name = 'vec_facts'").get() as
     | { sql: string }
     | undefined;
   const width = ddl?.sql.match(/FLOAT\[(\d+)\]/)?.[1];
 
   return {
-    model: meta?.value,
+    model: readMeta(db, META_EMBEDDING_MODEL),
+    documentPrefix: readMeta(db, META_DOCUMENT_PREFIX) ?? '',
     dimensions: width === undefined ? undefined : Number(width),
   };
 }
@@ -47,6 +53,10 @@ function migrationReason(state: StoredState, factCount: number): string | undefi
 
   if (state.model !== EMBEDDING_MODEL) {
     return `embedding model changed ("${state.model}" -> "${EMBEDDING_MODEL}")`;
+  }
+
+  if (state.documentPrefix !== EMBEDDING_DOCUMENT_PREFIX) {
+    return `document prefix changed ("${state.documentPrefix}" -> "${EMBEDDING_DOCUMENT_PREFIX}")`;
   }
 
   return undefined;
@@ -82,7 +92,7 @@ export async function migrate(
     for (const [index, fact] of facts.entries()) {
       vectors.push({
         id: fact.id,
-        embedding: new Float32Array(await embedding.embed(fact.content)),
+        embedding: new Float32Array(await embedding.embed(fact.content, 'document')),
       });
       onProgress?.(index + 1, facts.length);
     }
@@ -103,10 +113,9 @@ export async function migrate(
         insert.run(vector.id, vector.embedding);
       }
 
-      db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run(
-        META_EMBEDDING_MODEL,
-        EMBEDDING_MODEL,
-      );
+      const setMeta = db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)');
+      setMeta.run(META_EMBEDDING_MODEL, EMBEDDING_MODEL);
+      setMeta.run(META_DOCUMENT_PREFIX, EMBEDDING_DOCUMENT_PREFIX);
     })();
 
     return { status: 'migrated', reason, factCount: facts.length };

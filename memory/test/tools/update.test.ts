@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { EMBEDDING_DIMENSIONS } from '../../src/config.js';
 import { type DbConnection, openDb } from '../../src/db/client.js';
-import type { EmbeddingClient } from '../../src/embedding/types.js';
+import type { EmbeddingClient, EmbeddingKind } from '../../src/embedding/types.js';
 import { registerGetTool } from '../../src/tools/get.js';
 import { registerSaveTool } from '../../src/tools/save.js';
 import { registerSearchTool } from '../../src/tools/search.js';
@@ -19,11 +19,13 @@ let dir: string;
 let db: DbConnection;
 let client: Client;
 let embedCallCount: number;
+let embedKinds: EmbeddingKind[];
 
 function fakeEmbeddingClient(): EmbeddingClient {
   return {
-    async embed(text: string) {
+    async embed(text: string, kind: EmbeddingKind) {
       embedCallCount += 1;
+      embedKinds.push(kind);
       // Deterministic, distinguishable-by-content vector for the search-visibility check.
       const seed = text.length % 10;
       return new Array(EMBEDDING_DIMENSIONS).fill(0).map((_, i) => (i === 0 ? seed : 0));
@@ -35,6 +37,7 @@ beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), 'ha-app-memory-test-'));
   db = openDb(join(dir, 'facts.sqlite'));
   embedCallCount = 0;
+  embedKinds = [];
 
   const server = new McpServer({ name: 'test', version: '0.0.0' });
   const embeddingClient = fakeEmbeddingClient();
@@ -81,6 +84,7 @@ describe('update', () => {
 
     expect(result.isError).toBeFalsy();
     expect(embedCallCount).toBe(1);
+    expect(embedKinds.at(-1)).toBe('document');
 
     const fact = await get(id);
     expect(fact.content).toBe('brand new content');

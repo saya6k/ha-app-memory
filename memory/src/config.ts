@@ -24,5 +24,14 @@ export const EMBEDDING_API_KEY = process.env.EMBEDDING_API_KEY;
 /** Echoed back by llama-server; only meaningful when pointed at an external API. */
 export const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL ?? 'Qwen3-Embedding-0.6B';
 
+/**
+ * Prepended to search queries and to stored facts respectively. Empty by
+ * default, which is how the default Qwen3 model has always been used.
+ * Asymmetric models need them: EmbeddingGemma expects
+ * "task: search result | query: " and "title: none | text: ".
+ */
+export const EMBEDDING_QUERY_PREFIX = process.env.EMBEDDING_QUERY_PREFIX ?? '';
+export const EMBEDDING_DOCUMENT_PREFIX = process.env.EMBEDDING_DOCUMENT_PREFIX ?? '';
+
 /** Qwen3-Embedding-0.6B native output size (SPEC §8 Ask First to change). */
 export const EMBEDDING_DIMENSIONS = Number(process.env.EMBEDDING_DIMENSIONS ?? 1024);

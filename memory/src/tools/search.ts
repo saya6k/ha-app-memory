@@ -40,7 +40,7 @@ export function registerSearchTool(
       });
 
       try {
-        const embedding = await embeddingClient.embed(query);
+        const embedding = await embeddingClient.embed(query, 'query');
         const candidateK = Math.max(resolvedLimit * CANDIDATE_MULTIPLIER, CANDIDATE_FLOOR);
         const matches = knnSearch(db, embedding, candidateK);
 

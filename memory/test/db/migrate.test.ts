@@ -4,28 +4,51 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { EmbeddingClient } from '../../src/embedding/types.js';
+import type { EmbeddingClient, EmbeddingKind } from '../../src/embedding/types.js';
 
 /**
  * The migration is the one path allowed to rewrite existing vectors, so its
  * failure modes matter as much as its happy path. config.ts reads the env once
  * at import, hence resetModules between configurations.
  */
-async function moduleFor({ dims = 1024, model = 'model-a.gguf' }: { dims?: number; model?: string }) {
+interface Config {
+  dims?: number;
+  model?: string;
+  documentPrefix?: string;
+  queryPrefix?: string;
+}
+
+async function moduleFor({
+  dims = 1024,
+  model = 'model-a.gguf',
+  documentPrefix = '',
+  queryPrefix = '',
+}: Config) {
   vi.resetModules();
   process.env.EMBEDDING_DIMENSIONS = String(dims);
   process.env.EMBEDDING_MODEL = model;
+  process.env.EMBEDDING_DOCUMENT_PREFIX = documentPrefix;
+  process.env.EMBEDDING_QUERY_PREFIX = queryPrefix;
   const { migrate } = await import('../../src/db/migrate.js');
   const { openDb } = await import('../../src/db/client.js');
   return { migrate, openDb };
 }
 
 /** Distinct per model, so a re-embed is observable in the stored vectors. */
-function fakeClient(fill: number, dims = 1024): EmbeddingClient & { calls: number } {
+function fakeClient(
+  fill: number,
+  dims = 1024,
+): EmbeddingClient & { calls: number; kinds: EmbeddingKind[] } {
   return {
     calls: 0,
-    async embed(this: { calls: number }) {
+    kinds: [],
+    async embed(
+      this: { calls: number; kinds: EmbeddingKind[] },
+      _text: string,
+      kind: EmbeddingKind,
+    ) {
       this.calls += 1;
+      this.kinds.push(kind);
       return new Array(dims).fill(fill) as number[];
     },
   };
@@ -43,9 +66,11 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
   delete process.env.EMBEDDING_DIMENSIONS;
   delete process.env.EMBEDDING_MODEL;
+  delete process.env.EMBEDDING_DOCUMENT_PREFIX;
+  delete process.env.EMBEDDING_QUERY_PREFIX;
 });
 
-async function seed(opts: { dims?: number; model?: string }, contents: string[]): Promise<void> {
+async function seed(opts: Config, contents: string[]): Promise<void> {
   const { openDb } = await moduleFor(opts);
   const db = openDb(path);
   const dims = opts.dims ?? 1024;
@@ -167,6 +192,58 @@ describe('re-embedding migration', () => {
     expect(result.status).toBe('migrated');
     expect(result.reason).toMatch(/predates model tracking/);
     expect(client.calls).toBe(1);
+  });
+
+  it('re-embeds every fact as a document when the document prefix changes', async () => {
+    await seed({ model: 'model-a.gguf' }, ['one', 'two']);
+
+    const { migrate, openDb } = await moduleFor({
+      model: 'model-a.gguf',
+      documentPrefix: 'title: none | text: ',
+    });
+    const client = fakeClient(0.3);
+    const result = await migrate(path, client);
+
+    expect(result.status).toBe('migrated');
+    expect(result.reason).toMatch(/document prefix changed \("" -> "title: none \| text: "\)/);
+    expect(client.kinds).toEqual(['document', 'document']);
+
+    const db = openDb(path);
+    expect(db.prepare("SELECT value FROM meta WHERE key = 'document_prefix'").get()).toEqual({
+      value: 'title: none | text: ',
+    });
+    db.close();
+  });
+
+  it('does not re-embed when only the query prefix changes', async () => {
+    // Stored vectors are documents; the query prefix only shapes the search
+    // side, so changing it must not cost a full re-embed.
+    await seed({ model: 'model-a.gguf' }, ['one']);
+
+    const { migrate } = await moduleFor({ model: 'model-a.gguf', queryPrefix: 'q: ' });
+    const client = fakeClient(0.5);
+    const result = await migrate(path, client);
+
+    expect(result.status).toBe('up-to-date');
+    expect(client.calls).toBe(0);
+  });
+
+  it('treats a database from before prefix tracking as unprefixed', async () => {
+    // Everything stored before prefixes existed was embedded without one, so
+    // an unset prefix is a match, not a reason to re-embed.
+    await seed({ model: 'model-a.gguf' }, ['one']);
+
+    const pre = await moduleFor({ model: 'model-a.gguf' });
+    const db = pre.openDb(path);
+    db.exec("DELETE FROM meta WHERE key = 'document_prefix'");
+    db.close();
+
+    const { migrate } = await moduleFor({ model: 'model-a.gguf' });
+    const client = fakeClient(0.5);
+    const result = await migrate(path, client);
+
+    expect(result.status).toBe('up-to-date');
+    expect(client.calls).toBe(0);
   });
 
   it('adopts the model on an empty database without calling the sidecar', async () => {

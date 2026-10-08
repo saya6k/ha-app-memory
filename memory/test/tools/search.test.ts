@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { EMBEDDING_DIMENSIONS } from '../../src/config.js';
 import { type DbConnection, openDb } from '../../src/db/client.js';
-import type { EmbeddingClient } from '../../src/embedding/types.js';
+import type { EmbeddingClient, EmbeddingKind } from '../../src/embedding/types.js';
 import { registerGetTool } from '../../src/tools/get.js';
 import { registerSaveTool } from '../../src/tools/save.js';
 import { registerSearchTool } from '../../src/tools/search.js';
@@ -18,6 +18,7 @@ let dir: string;
 let db: DbConnection;
 let client: Client;
 let embeddings: Record<string, number[]>;
+let embedKinds: Record<string, EmbeddingKind>;
 
 /**
  * A unit vector with all "signal" in the first two dimensions (angle in
@@ -35,7 +36,8 @@ function angledEmbedding(angleDeg: number): number[] {
 
 function fakeEmbeddingClient(): EmbeddingClient {
   return {
-    async embed(text: string) {
+    async embed(text: string, kind: EmbeddingKind) {
+      embedKinds[text] = kind;
       const vec = embeddings[text];
       if (!vec) throw new Error(`no fixture embedding for "${text}"`);
       return vec;
@@ -47,6 +49,7 @@ beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), 'ha-app-memory-test-'));
   db = openDb(join(dir, 'facts.sqlite'));
   embeddings = { query: angledEmbedding(0) };
+  embedKinds = {};
 
   const server = new McpServer({ name: 'test', version: '0.0.0' });
   const embeddingClient = fakeEmbeddingClient();
@@ -87,6 +90,14 @@ async function search(args: {
 }
 
 describe('search', () => {
+  it('embeds the query as a query and saved facts as documents', async () => {
+    embeddings['a-fact'] = angledEmbedding(0);
+    await save('a-fact');
+    await search({ query: 'query' });
+
+    expect(embedKinds).toEqual({ 'a-fact': 'document', query: 'query' });
+  });
+
   it('orders results by cosine distance ascending', async () => {
     embeddings['near-fact'] = angledEmbedding(0);
     embeddings['mid-fact'] = angledEmbedding(30);

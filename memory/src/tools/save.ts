@@ -28,7 +28,7 @@ export function registerSaveTool(
       logToolCall('save', { contentLength: content.length, tagCount: resolvedTags.length });
 
       try {
-        const embedding = await embeddingClient.embed(content);
+        const embedding = await embeddingClient.embed(content, 'document');
         const fact = insertFact(db, {
           id: randomUUID(),
           content,
