@@ -13,7 +13,9 @@ import {
   DB_PATH,
   EMBEDDING_API_KEY,
   EMBEDDING_BASE_URL,
+  EMBEDDING_DOCUMENT_PREFIX,
   EMBEDDING_MODEL,
+  EMBEDDING_QUERY_PREFIX,
   EMBEDDING_SOCKET_PATH,
 } from './config.js';
 import { migrate } from './db/migrate.js';
@@ -26,6 +28,8 @@ const client = new HttpEmbeddingClient({
   socketPath: EMBEDDING_SOCKET_PATH,
   apiKey: EMBEDDING_API_KEY,
   model: EMBEDDING_MODEL,
+  queryPrefix: EMBEDDING_QUERY_PREFIX,
+  documentPrefix: EMBEDDING_DOCUMENT_PREFIX,
 });
 
 let lastReported = 0;

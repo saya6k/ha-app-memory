@@ -11,16 +11,28 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
  */
 const DEFAULT_MODEL = 'model-a.gguf';
 
+interface Config {
+  dims?: number;
+  model?: string;
+  documentPrefix?: string;
+}
+
 async function openAs(
-  { dims = 1024, model = DEFAULT_MODEL }: { dims?: number; model?: string },
+  { dims = 1024, model = DEFAULT_MODEL, documentPrefix = '' }: Config,
   path: string,
 ) {
   vi.resetModules();
   process.env.EMBEDDING_DIMENSIONS = String(dims);
   process.env.EMBEDDING_MODEL = model;
-  const { openDb, DimensionMismatchError, ModelMismatchError } =
+  process.env.EMBEDDING_DOCUMENT_PREFIX = documentPrefix;
+  const { openDb, DimensionMismatchError, ModelMismatchError, DocumentPrefixMismatchError } =
     await import('../../src/db/client.js');
-  return { openDb: () => openDb(path), DimensionMismatchError, ModelMismatchError };
+  return {
+    openDb: () => openDb(path),
+    DimensionMismatchError,
+    ModelMismatchError,
+    DocumentPrefixMismatchError,
+  };
 }
 
 let dir: string;
@@ -35,9 +47,10 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
   delete process.env.EMBEDDING_DIMENSIONS;
   delete process.env.EMBEDDING_MODEL;
+  delete process.env.EMBEDDING_DOCUMENT_PREFIX;
 });
 
-async function seed(opts: { dims?: number; model?: string } = {}): Promise<void> {
+async function seed(opts: Config = {}): Promise<void> {
   const { openDb } = await openAs(opts, path);
   const db = openDb();
   db.prepare(
@@ -162,5 +175,31 @@ describe('embedding model vs an existing database', () => {
     });
     expect(db.prepare('SELECT count(*) AS c FROM facts').get()).toEqual({ c: 1 });
     db.close();
+  });
+});
+
+describe('document prefix vs an existing database', () => {
+  it('records the document prefix that wrote a fresh database', async () => {
+    const { openDb } = await openAs({ documentPrefix: 'title: none | text: ' }, path);
+    const db = openDb();
+
+    expect(db.prepare("SELECT value FROM meta WHERE key = 'document_prefix'").get()).toEqual({
+      value: 'title: none | text: ',
+    });
+    db.close();
+  });
+
+  it('rejects a changed document prefix, naming both values', async () => {
+    // Same model, same width — but the stored vectors were embedded with a
+    // different prefix, so they no longer line up with new ones.
+    await seed({ documentPrefix: '' });
+
+    const { openDb, DocumentPrefixMismatchError } = await openAs(
+      { documentPrefix: 'title: none | text: ' },
+      path,
+    );
+    expect(openDb).toThrow(DocumentPrefixMismatchError);
+    expect(openDb).toThrow(/""/);
+    expect(openDb).toThrow(/"title: none \| text: "/);
   });
 });

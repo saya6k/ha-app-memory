@@ -6,6 +6,7 @@ import {
   EmbeddingError,
   type EmbeddingClient,
   type EmbeddingClientConfig,
+  type EmbeddingKind,
   type EmbeddingRequestBody,
   type EmbeddingResponseBody,
 } from './types.js';
@@ -22,6 +23,7 @@ export class HttpEmbeddingClient implements EmbeddingClient {
   private readonly baseUrl: string;
   private readonly apiKey: string | undefined;
   private readonly model: string;
+  private readonly prefixes: Record<EmbeddingKind, string>;
   private readonly maxRetries: number;
   private readonly retryDelayMs: number;
   private readonly dispatcher: Dispatcher | undefined;
@@ -30,6 +32,7 @@ export class HttpEmbeddingClient implements EmbeddingClient {
     this.baseUrl = config.baseUrl;
     this.apiKey = config.apiKey;
     this.model = config.model;
+    this.prefixes = { query: config.queryPrefix ?? '', document: config.documentPrefix ?? '' };
     this.maxRetries = config.maxRetries ?? DEFAULT_MAX_RETRIES;
     this.retryDelayMs = config.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
     this.dispatcher = config.socketPath
@@ -38,11 +41,13 @@ export class HttpEmbeddingClient implements EmbeddingClient {
   }
 
   /**
-   * Requests an embedding for `text`, retrying transient failures with a
-   * fixed backoff (bounded by maxRetries). Never fails silently: exhausting
-   * retries throws EmbeddingError with the last cause attached.
+   * Requests an embedding for `text`, with the prefix for its `kind` prepended,
+   * retrying transient failures with a fixed backoff (bounded by maxRetries).
+   * Never fails silently: exhausting retries throws EmbeddingError with the
+   * last cause attached.
    */
-  async embed(text: string): Promise<number[]> {
+  async embed(text: string, kind: EmbeddingKind): Promise<number[]> {
+    const input = this.prefixes[kind] + text;
     let lastError: unknown;
 
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
@@ -51,7 +56,7 @@ export class HttpEmbeddingClient implements EmbeddingClient {
       }
 
       try {
-        return await this.requestEmbedding(text);
+        return await this.requestEmbedding(input);
       } catch (error) {
         lastError = error;
       }

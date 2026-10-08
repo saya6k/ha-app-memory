@@ -1,13 +1,14 @@
 import Database from 'better-sqlite3';
 import * as sqliteVec from 'sqlite-vec';
 
-import { EMBEDDING_DIMENSIONS, EMBEDDING_MODEL } from '../config.js';
-import { META_EMBEDDING_MODEL, SCHEMA_SQL } from './schema.js';
+import { EMBEDDING_DIMENSIONS, EMBEDDING_DOCUMENT_PREFIX, EMBEDDING_MODEL } from '../config.js';
+import { META_DOCUMENT_PREFIX, META_EMBEDDING_MODEL, SCHEMA_SQL } from './schema.js';
 
 export type DbConnection = Database.Database;
 
 export class DimensionMismatchError extends Error {}
 export class ModelMismatchError extends Error {}
+export class DocumentPrefixMismatchError extends Error {}
 
 /**
  * `CREATE VIRTUAL TABLE IF NOT EXISTS` silently keeps an existing vec0 table's
@@ -65,6 +66,35 @@ function assertModelMatches(db: DbConnection): void {
   );
 }
 
+/**
+ * Same blind spot as a model swap: a different document prefix shifts every
+ * vector, yet the table keeps working. Adopts the configured prefix when none
+ * is recorded, mirroring assertModelMatches — db-migrate runs first and has
+ * already re-embedded anything that needed it.
+ */
+function assertDocumentPrefixMatches(db: DbConnection): void {
+  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(META_DOCUMENT_PREFIX) as
+    { value: string } | undefined;
+
+  if (row === undefined) {
+    db.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run(
+      META_DOCUMENT_PREFIX,
+      EMBEDDING_DOCUMENT_PREFIX,
+    );
+    return;
+  }
+
+  if (row.value === EMBEDDING_DOCUMENT_PREFIX) {
+    return;
+  }
+
+  throw new DocumentPrefixMismatchError(
+    `This memory database was embedded with the document prefix "${row.value}", but the ` +
+      `add-on is now configured for "${EMBEDDING_DOCUMENT_PREFIX}". Set document_prefix back ` +
+      `to "${row.value}", or delete the database file to start a fresh memory.`,
+  );
+}
+
 export interface OpenDbOptions {
   /**
    * Skip the compatibility guards. Only the migration may do this — it is the
@@ -86,6 +116,7 @@ export function openDb(path: string, options: OpenDbOptions = {}): DbConnection 
   try {
     assertDimensionsMatch(db);
     assertModelMatches(db);
+    assertDocumentPrefixMatches(db);
   } catch (error) {
     db.close();
     throw error;

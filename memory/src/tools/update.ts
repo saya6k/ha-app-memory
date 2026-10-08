@@ -36,7 +36,9 @@ export function registerUpdateTool(
         const nextTags = fact.tags ?? existing.tags;
         const contentChanged = fact.content !== undefined && fact.content !== existing.content;
 
-        const embedding = contentChanged ? await embeddingClient.embed(nextContent) : undefined;
+        const embedding = contentChanged
+          ? await embeddingClient.embed(nextContent, 'document')
+          : undefined;
 
         const updated = updateFact(db, {
           id,

@@ -25,3 +25,10 @@ CREATE TABLE IF NOT EXISTS meta (
 `;
 
 export const META_EMBEDDING_MODEL = 'embedding_model';
+/**
+ * The prefix stored facts were embedded with. Part of what a vector means just
+ * like the model is; only the document side is recorded, since queries are
+ * never stored. Absent means "", which is all a database written before
+ * prefixes existed can have used.
+ */
+export const META_DOCUMENT_PREFIX = 'document_prefix';

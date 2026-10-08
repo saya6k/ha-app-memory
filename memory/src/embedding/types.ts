@@ -7,13 +7,20 @@ export interface EmbeddingClientConfig {
   apiKey?: string;
   /** Sent as the request body's `model` field. */
   model: string;
+  /** Prepended to search queries. Asymmetric models (EmbeddingGemma) expect a task prefix here. */
+  queryPrefix?: string;
+  /** Prepended to stored facts. Changing it changes every stored vector. */
+  documentPrefix?: string;
   maxRetries?: number;
   retryDelayMs?: number;
 }
 
+/** A search query, or a fact being stored. Asymmetric models embed the two differently. */
+export type EmbeddingKind = 'query' | 'document';
+
 /** Abstraction tools depend on, so tests can supply a fake without an HTTP round trip. */
 export interface EmbeddingClient {
-  embed(text: string): Promise<number[]>;
+  embed(text: string, kind: EmbeddingKind): Promise<number[]>;
 }
 
 export class EmbeddingError extends Error {}

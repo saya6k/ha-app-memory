@@ -99,12 +99,29 @@ English question about the same thing, and vice versa.
 | `model_file` | `Qwen3-Embedding-0.6B-Q8_0.gguf` | File within that repo |
 | `model_sha256` | *(unset)* | Optional. When set, the download must match it or startup fails. When unset, the download is not verified and the actual hash is printed so you can pin it. |
 | `embedding_dimensions` | `1024` | Must match the model's native output size |
+| `query_prefix` | *(unset)* | Optional. Prepended to every search query before embedding. See below. |
+| `document_prefix` | *(unset)* | Optional. Prepended to every fact before embedding. See below. |
 | `threads` | `4` | CPU threads for the embedding sidecar |
 | `log_level` | *(unset → `info`)* | Optional. `trace` / `debug` / `info` / `notice` / `warning` / `error` / `fatal`. Applies to both the MCP server and the embedding sidecar. |
 
-`model_sha256` and `log_level` are optional and stay hidden until you add them
-(use **Show unused optional configuration options** in the add-on's
-Configuration tab).
+`model_sha256`, `query_prefix`, `document_prefix` and `log_level` are optional
+and stay hidden until you add them (use **Show unused optional configuration
+options** in the add-on's Configuration tab).
+
+### Query and document prefixes
+
+Some embedding models are trained to see a short task prefix in front of the
+text, and a different one for a search query than for a stored passage. Leave
+both empty for the default Qwen3 model. EmbeddingGemma 2, for example, expects:
+
+```yaml
+query_prefix: "task: search result | query: "
+document_prefix: "title: none | text: "
+```
+
+Keep the trailing space. Changing `query_prefix` takes effect on the next
+search. Changing `document_prefix` changes every stored vector, so it is
+handled like a model change: all facts are re-embedded on the next start.
 
 ### Changing the model
 

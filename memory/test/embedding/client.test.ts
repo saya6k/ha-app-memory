@@ -58,7 +58,7 @@ describe('EmbeddingClient', () => {
       model: 'Qwen3-Embedding-0.6B',
       maxRetries: 0,
     });
-    const embedding = await client.embed('hello world');
+    const embedding = await client.embed('hello world', 'document');
     expect(embedding).toEqual([0.1, 0.2, 0.3]);
     expect(requestCount).toBe(1);
   });
@@ -69,7 +69,7 @@ describe('EmbeddingClient', () => {
       model: 'Qwen3-Embedding-0.6B',
       maxRetries: 0,
     });
-    await client.embed('hello world');
+    await client.embed('hello world', 'document');
 
     expect(lastAuthHeader).toBeUndefined();
     expect(lastRequestBody).toMatchObject({
@@ -85,12 +85,42 @@ describe('EmbeddingClient', () => {
       model: 'text-embedding-3-large',
       maxRetries: 0,
     });
-    await client.embed('hello world');
+    await client.embed('hello world', 'document');
 
     expect(lastAuthHeader).toBe('Bearer sk-secret-123');
     expect(lastRequestBody).toMatchObject({
       input: 'hello world',
       model: 'text-embedding-3-large',
+    });
+  });
+
+  it('sends the text unchanged for both kinds when no prefixes are configured', async () => {
+    const client = new HttpEmbeddingClient({ baseUrl, model: 'm', maxRetries: 0 });
+
+    await client.embed('hello', 'query');
+    expect(lastRequestBody).toMatchObject({ input: 'hello' });
+    await client.embed('hello', 'document');
+    expect(lastRequestBody).toMatchObject({ input: 'hello' });
+  });
+
+  it('prepends the query or document prefix according to the kind', async () => {
+    // Asymmetric retrieval models (EmbeddingGemma) need a different task
+    // prefix on each side; mixing them up degrades matching silently.
+    const client = new HttpEmbeddingClient({
+      baseUrl,
+      model: 'm',
+      queryPrefix: 'task: search result | query: ',
+      documentPrefix: 'title: none | text: ',
+      maxRetries: 0,
+    });
+
+    await client.embed('고양이 이름', 'query');
+    expect(lastRequestBody).toMatchObject({
+      input: 'task: search result | query: 고양이 이름',
+    });
+    await client.embed('고양이 이름은 나비다', 'document');
+    expect(lastRequestBody).toMatchObject({
+      input: 'title: none | text: 고양이 이름은 나비다',
     });
   });
 
@@ -107,7 +137,7 @@ describe('EmbeddingClient', () => {
       maxRetries: 3,
       retryDelayMs: 1,
     });
-    const embedding = await client.embed('retry me');
+    const embedding = await client.embed('retry me', 'document');
 
     expect(embedding).toEqual([1, 2, 3]);
     expect(requestCount).toBe(3);
@@ -131,7 +161,7 @@ describe('EmbeddingClient', () => {
         model: 'Qwen3-Embedding-0.6B',
         maxRetries: 0,
       });
-      await expect(client.embed('over a socket')).resolves.toEqual([9, 8, 7]);
+      await expect(client.embed('over a socket', 'document')).resolves.toEqual([9, 8, 7]);
     } finally {
       await new Promise<void>((resolve) => unixServer.close(() => resolve()));
       rmSync(dir, { recursive: true, force: true });
@@ -149,7 +179,7 @@ describe('EmbeddingClient', () => {
       retryDelayMs: 1,
     });
 
-    await expect(client.embed('will fail')).rejects.toThrow(EmbeddingError);
+    await expect(client.embed('will fail', 'document')).rejects.toThrow(EmbeddingError);
     expect(requestCount).toBe(3); // initial attempt + 2 retries
   });
 });

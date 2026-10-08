@@ -37,7 +37,10 @@ export EMBEDDING_BASE_URL=http://localhost
 export EMBEDDING_SOCKET_PATH="${SOCKET}"
 EMBEDDING_MODEL="$(option model_file)"
 EMBEDDING_DIMENSIONS="$(option embedding_dimensions)"
-export EMBEDDING_MODEL EMBEDDING_DIMENSIONS
+# Unset prefixes come through as "", which is what the app defaults to anyway.
+EMBEDDING_QUERY_PREFIX="$(option query_prefix)"
+EMBEDDING_DOCUMENT_PREFIX="$(option document_prefix)"
+export EMBEDDING_MODEL EMBEDDING_DIMENSIONS EMBEDDING_QUERY_PREFIX EMBEDDING_DOCUMENT_PREFIX
 
 cd /opt/mcp-server
 exec node dist/db-migrate.js

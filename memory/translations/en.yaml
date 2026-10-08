@@ -25,6 +25,21 @@ configuration:
       Vector width the model produces — 1024 for the default model. It must
       match the model, otherwise search returns nothing useful. Changing it
       rebuilds the vector store and re-embeds every stored fact.
+  query_prefix:
+    name: Query prefix
+    description: >-
+      Optional. Text put in front of every search query before it is embedded.
+      Leave empty for the default model. Models trained with task prefixes
+      need it — EmbeddingGemma 2 expects `task: search result | query: `
+      (note the trailing space). Changing it takes effect immediately and
+      does not re-embed anything.
+  document_prefix:
+    name: Document prefix
+    description: >-
+      Optional. Text put in front of every fact before it is embedded. Leave
+      empty for the default model; EmbeddingGemma 2 expects
+      `title: none | text: `. Changing it re-embeds every stored fact on the
+      next start, just like changing the model.
   threads:
     name: CPU threads
     description: >-
