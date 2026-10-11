@@ -5,47 +5,34 @@
 # ==============================================================================
 set -euo pipefail
 
-# s6 dependencies order *starts*, not readiness. On first boot the sidecar is
-# still downloading the model before it binds, so poll generously (30 min).
-readonly SOCKET=/run/llama/embed.sock
-
 # shellcheck source=/dev/null
 source /usr/lib/ha-memory/options.sh
+# shellcheck source=/dev/null
+source /usr/lib/ha-memory/embedding.sh
 
-ready=0
-bashio::log.info "Waiting for the embedding sidecar to become ready …"
-for _ in $(seq 1 900); do
-    if curl -sf --max-time 2 --unix-socket "${SOCKET}" \
-        http://localhost/health > /dev/null 2>&1; then
-        ready=1
-        break
-    fi
-    sleep 2
-done
-
-if [[ "${ready}" -ne 1 ]]; then
+if [[ "$(embedding_provider)" == "local" ]]; then
+    bashio::log.info "Waiting for the embedding sidecar to become ready …"
+fi
+if ! wait_for_sidecar; then
     bashio::log.fatal "Embedding sidecar did not become ready within 30 minutes."
     bashio::log.fatal "Check the llama-server logs above for a download or model-load failure."
     exit 1
 fi
-bashio::log.info "Embedding sidecar is ready."
+if [[ "$(embedding_provider)" == "local" ]]; then
+    bashio::log.info "Embedding sidecar is ready."
+else
+    bashio::log.info "Using the $(embedding_provider) embedding service."
+fi
 
 export DB_PATH=/data/facts.sqlite
 export MCP_PORT=8099
 export MANUALS_DIR=/share/manuals
 # Personal documents, one folder per Home Assistant user id.
 export USERS_DIR=/data/users
-# The manuals panel answers only Supervisor's ingress proxy.
+# The panel answers only Supervisor's ingress proxy.
 export UI_PORT=8100
 export UI_ALLOWED_ADDRESS=172.30.32.2
-export EMBEDDING_BASE_URL=http://localhost
-export EMBEDDING_SOCKET_PATH="${SOCKET}"
-EMBEDDING_MODEL="$(option model_file)"
-EMBEDDING_DIMENSIONS="$(option embedding_dimensions)"
-# Unset prefixes come through as "", which is what the app defaults to anyway.
-EMBEDDING_QUERY_PREFIX="$(option query_prefix)"
-EMBEDDING_DOCUMENT_PREFIX="$(option document_prefix)"
-export EMBEDDING_MODEL EMBEDDING_DIMENSIONS EMBEDDING_QUERY_PREFIX EMBEDDING_DOCUMENT_PREFIX
+export_embedding_env
 
 # log_level is optional; leave the variable unset so the app applies its own
 # default rather than parsing an empty string.
@@ -54,6 +41,6 @@ if [[ -n "${log_level}" ]]; then
     export LOG_LEVEL="${log_level}"
 fi
 
-bashio::log.info "Starting MCP server on 0.0.0.0:8099 (/mcp) and the manuals panel on :8100"
+bashio::log.info "Starting MCP server on 0.0.0.0:8099 (/mcp) and the panel on :8100"
 cd /opt/mcp-server
 exec node dist/index.js

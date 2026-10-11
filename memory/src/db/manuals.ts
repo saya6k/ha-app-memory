@@ -1,5 +1,11 @@
 import type { DbConnection } from './client.js';
-import { MANUAL_INDEX_VERSION, MANUAL_SCHEMA_SQL, META_MANUAL_INDEX_VERSION } from './schema.js';
+import { CHUNK_SIZE } from '../config.js';
+import {
+  MANUAL_INDEX_VERSION,
+  MANUAL_SCHEMA_SQL,
+  META_CHUNK_SIZE,
+  META_MANUAL_INDEX_VERSION,
+} from './schema.js';
 
 export type ManualFormat = 'pdf' | 'markdown';
 
@@ -179,17 +185,31 @@ export function clearManualIndex(db: DbConnection): void {
       META_MANUAL_INDEX_VERSION,
       MANUAL_INDEX_VERSION,
     );
+    db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run(
+      META_CHUNK_SIZE,
+      String(CHUNK_SIZE),
+    );
   })();
 }
 
+/** Chunks were always 400 characters before chunk_size could be set. */
+const CHUNK_SIZE_BEFORE_OPTION = '400';
+
+function readMeta(db: DbConnection, key: string): string | undefined {
+  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(key) as
+    { value: string } | undefined;
+  return row?.value;
+}
+
 /**
- * Creates the document index, or replaces one of an older shape. Its contents
- * are rebuilt from the files by the next sync, so replacing it loses nothing.
+ * Creates the document index, or replaces one built differently: of an older
+ * shape, or cut into chunks of another size. Its contents are rebuilt from the
+ * files by the next sync, so replacing it loses nothing.
  */
 export function ensureManualIndex(db: DbConnection): void {
-  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(META_MANUAL_INDEX_VERSION) as
-    { value: string } | undefined;
-  if (row?.value === MANUAL_INDEX_VERSION) {
+  const version = readMeta(db, META_MANUAL_INDEX_VERSION);
+  const chunkSize = readMeta(db, META_CHUNK_SIZE) ?? CHUNK_SIZE_BEFORE_OPTION;
+  if (version === MANUAL_INDEX_VERSION && chunkSize === String(CHUNK_SIZE)) {
     db.exec(MANUAL_SCHEMA_SQL);
     return;
   }

@@ -44,7 +44,8 @@ beforeEach(async () => {
 
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address() as AddressInfo;
-  baseUrl = `http://127.0.0.1:${address.port}`;
+  // An OpenAI-style base URL includes /v1; the client appends /embeddings.
+  baseUrl = `http://127.0.0.1:${address.port}/v1`;
 });
 
 afterEach(async () => {

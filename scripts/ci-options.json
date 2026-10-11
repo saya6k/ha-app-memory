@@ -1,8 +1,11 @@
 {
+  "embedding_provider": "local",
   "model_repo": "ggml-org/embeddinggemma-2-GGUF",
   "model_file": "embeddinggemma-2-Q8_0.gguf",
   "embedding_dimensions": 768,
   "query_prefix": "task: search result | query: ",
   "document_prefix": "title: none | text: ",
-  "threads": 4
+  "threads": 4,
+  "context_size": 512,
+  "chunk_size": 400
 }

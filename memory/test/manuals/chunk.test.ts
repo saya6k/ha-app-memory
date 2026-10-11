@@ -33,4 +33,12 @@ describe('chunkPage', () => {
     const [first, second] = chunks as [string, string];
     expect(first.slice(-CHUNK_OVERLAP_CHARS)).toContain(second.slice(0, 20));
   });
+
+  it('takes another chunk size, overlapping by the same share', () => {
+    const chunks = chunkPage('word '.repeat(400), 100);
+    for (const chunk of chunks) expect(chunk.length).toBeLessThanOrEqual(100);
+    const [first, second] = chunks as [string, string];
+    expect(first.slice(-15)).toContain(second.slice(0, 5));
+  });
 });
+

@@ -16,6 +16,13 @@ readonly MODEL_DIR=/data/models
 
 # shellcheck source=/dev/null
 source /usr/lib/ha-memory/options.sh
+# shellcheck source=/dev/null
+source /usr/lib/ha-memory/embedding.sh
+
+if [[ "$(embedding_provider)" != "local" ]]; then
+    bashio::log.info "Embedding provider is $(embedding_provider) — no local model to download."
+    exit 0
+fi
 
 model_repo="$(option model_repo)"
 model_file="$(option model_file)"

@@ -4,8 +4,10 @@ The household's memory for Home Assistant Assist, exposed over MCP. It keeps
 remembered facts — each person's own and shared ones — personal documents, and
 the shared appliance manuals (PDF and Markdown), and finds any of them by
 meaning with one `search`. A **Memory** panel lets everyone read and manage what
-is theirs. Embeddings are produced by a local llama.cpp sidecar — there is no
-external API and no internet access at query time.
+is theirs. By default, embeddings are produced by a local llama.cpp sidecar —
+there is no external API and no internet access at query time. An OpenAI,
+Hugging Face or Ollama embedding service can be used instead; see
+[Using a remote embedding service](#using-a-remote-embedding-service).
 
 ## Install (local add-on)
 
@@ -68,7 +70,9 @@ the vectors; stored facts are re-embedded automatically on the next start.
 
 Avoid the **F16** files some repositories publish: EmbeddingGemma 2's
 activations overflow float16 and produce broken vectors. Q8_0, Q4 and BF16 are
-fine.
+fine. For the same reason the sidecar runs with flash attention off, which
+keeps attention in float32 (with it on, llama.cpp handles keys and values as
+float16).
 
 ## Connecting it to Assist
 
@@ -215,6 +219,10 @@ the next start.
 
 | Option | Default | Notes |
 |---|---|---|
+| `embedding_provider` | `local` | `local`, `openai`, `huggingface` or `ollama`. See below. |
+| `embedding_url` | *(unset)* | Optional. A remote provider's address; see below. |
+| `embedding_api_key` | *(unset)* | Optional. Sent as a Bearer token to a remote provider. |
+| `embedding_model` | *(unset)* | Optional. The model to ask a remote provider for; required for one. |
 | `model_repo` | `ggml-org/embeddinggemma-2-GGUF` | Hugging Face repo |
 | `model_file` | `embeddinggemma-2-Q8_0.gguf` | File within that repo |
 | `model_sha256` | *(unset)* | Optional. When set, the download must match it or startup fails. When unset, the download is not verified and the actual hash is printed so you can pin it. |
@@ -222,11 +230,68 @@ the next start.
 | `query_prefix` | `"task: search result \| query: "` | Prepended to every search query before embedding. See below. |
 | `document_prefix` | `"title: none \| text: "` | Prepended to every fact before embedding. See below. |
 | `threads` | `4` | CPU threads for the embedding sidecar |
+| `context_size` | `512` | The longest input the local sidecar takes, in tokens. More costs memory. |
+| `chunk_size` | `400` | Characters per piece a manual or document is split into. Changing it re-indexes the documents. |
 | `log_level` | *(unset → `info`)* | Optional. `trace` / `debug` / `info` / `notice` / `warning` / `error` / `fatal`. Applies to both the MCP server and the embedding sidecar. |
 
-`model_sha256` and `log_level` are optional and stay hidden until you add them
-(use **Show unused optional configuration options** in the add-on's
-Configuration tab).
+`model_sha256`, `log_level` and the three remote settings are optional and
+stay hidden until you add them (use **Show unused optional configuration
+options** in the add-on's Configuration tab). `model_repo`, `model_file`,
+`model_sha256`, `threads` and `context_size` only matter for the `local`
+provider.
+
+### Using a remote embedding service
+
+Instead of the bundled model, the add-on can ask an embedding service. The
+local sidecar is then not started and no model is downloaded, which saves the
+~460 MiB it uses — but **the text of every fact, document and question is sent
+to that service**.
+
+| `embedding_provider` | `embedding_url` | `embedding_api_key` |
+|---|---|---|
+| `openai` | API base including `/v1`. Default `https://api.openai.com/v1`; any OpenAI-compatible server works (LocalAI, vLLM, LM Studio, …). | Your API key |
+| `huggingface` | The feature-extraction endpoint. Default: the Inference Providers router for the model (`https://router.huggingface.co/hf-inference/models/<model>/pipeline/feature-extraction`). For a Text Embeddings Inference server, `http://host:port/embed`. | A token with Inference Providers permission (not needed for your own TEI server) |
+| `ollama` | The server, e.g. `http://192.168.1.10:11434`. Required. | Not needed |
+
+Set `embedding_model` to the model name (`text-embedding-3-small`,
+`BAAI/bge-m3`, `embeddinggemma`, …) and `embedding_dimensions` to its vector
+size: 1536 for `text-embedding-3-small`, 1024 for `bge-m3`, 768 for
+EmbeddingGemma. If they do not match, the add-on stops at startup and logs the
+size the model actually returned. Clear `query_prefix` and `document_prefix`
+unless the model expects task prefixes (EmbeddingGemma in Ollama does).
+
+On every start the add-on embeds one short text to check the service. If the
+service is unreachable or busy (HTTP 429 or 5xx — Ollama or Hugging Face
+loading the model, say), it waits up to five minutes; a rejected key, an
+unknown model or a wrong `embedding_dimensions` stops the add-on at once, with
+the reason in the log.
+
+Switching provider or model is handled like any model change: every fact is
+re-embedded on the next start, and the documents are re-indexed in the
+background. If the service fails part-way, the add-on stops with the error
+instead of starting on half-converted memories.
+
+For Hugging Face, the model has to produce one sentence embedding per text —
+a model listed for feature extraction, typically a sentence-transformers model.
+One that returns a vector per token is refused with a message saying so.
+
+### Chunk and context size
+
+Manuals and documents are split into pieces of at most `chunk_size` characters
+before embedding, and a search finds the matching piece. Each piece, together
+with the document's title and `document_prefix`, has to fit the model's
+context: with the local sidecar that is `context_size` tokens. Korean can take
+about one token per character, so keep `chunk_size` comfortably below
+`context_size` — the defaults, 400 and 512, leave room for the title and
+prefix. To raise both, for example to 1500 and 2048, expect the sidecar to use
+noticeably more memory. EmbeddingGemma 2 takes at most 2048 tokens.
+
+A remote service has its own limit (8191 tokens for OpenAI's models). Ollama is
+asked not to cut a long piece short, so one that does not fit fails with an
+error rather than being indexed incompletely.
+
+Changing `chunk_size` re-indexes the documents on the next start; facts are
+always embedded whole and are not affected.
 
 ### Query and document prefixes
 
@@ -320,4 +385,7 @@ backups, and is not exposed over the network.
 - In Assist, who is asking comes from the model (see
   [Each person's own memory](#each-persons-own-memory)), so separating people
   there is a convenience, not a security boundary.
+- With a remote `embedding_provider`, the text of every fact, document and
+  question is sent to that service. The API key is passed to the server
+  process only and never logged.
 - Fact contents are never written to the log — only lengths and counts.
