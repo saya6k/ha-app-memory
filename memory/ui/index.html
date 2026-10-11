@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Manuals</title>
+    <title>Memory</title>
     <!-- Relative URLs throughout: ingress serves this page under a per-session prefix. -->
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="style.css" />
@@ -13,7 +13,28 @@
     <div class="layout" data-view="list">
       <aside class="sidebar">
         <header class="bar">
-          <h1 data-i18n="title">Manuals</h1>
+          <h1 data-i18n="title">Memory</h1>
+          <button
+            type="button"
+            class="icon-button"
+            id="upload"
+            aria-haspopup="menu"
+            aria-expanded="false"
+            data-i18n-label="upload"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M9 16h6v-6h4l-7-7-7 7h4v6zm-4 2h14v2H5v-2z" />
+            </svg>
+          </button>
+          <input type="file" id="upload-input" accept=".pdf,.md,.markdown" multiple hidden />
+          <div class="menu" id="upload-menu" popover role="menu">
+            <button type="button" role="menuitem" id="upload-mine" data-i18n="uploadToMine">
+              Upload to my documents
+            </button>
+            <button type="button" role="menuitem" id="upload-shared" data-i18n="uploadToShared">
+              Upload to shared manuals
+            </button>
+          </div>
           <button type="button" class="icon-button" id="rescan" data-i18n-label="rescan">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path
@@ -46,6 +67,15 @@
           </div>
         </header>
 
+        <div class="tabs" role="tablist" data-i18n-label="tabs">
+          <button type="button" role="tab" data-tab="documents" data-i18n="tabDocuments">
+            Documents
+          </button>
+          <button type="button" role="tab" data-tab="memories" data-i18n="tabMemories">
+            Memories
+          </button>
+        </div>
+
         <form class="search" id="search-form" role="search">
           <input
             type="search"
@@ -63,17 +93,45 @@
           <ul class="list" id="result-list"></ul>
         </section>
 
-        <section id="manuals">
-          <h2 class="section-title" data-i18n="allManuals">All manuals</h2>
-          <ul class="list" id="manual-list"></ul>
-          <div class="empty" id="empty" hidden>
-            <p data-i18n="emptyTitle">No manuals yet</p>
-            <p class="muted" data-i18n="emptyBody">
-              Copy PDF manuals into the share folder's manuals directory, then rescan.
-            </p>
-            <code>/share/manuals/</code>
+        <div id="documents-panel">
+          <section id="my-documents" hidden>
+            <h2 class="section-title" data-i18n="myDocuments">My documents</h2>
+            <ul class="list" id="my-document-list"></ul>
+            <p class="empty muted" id="my-document-empty" data-i18n="emptyMyDocuments"></p>
+          </section>
+
+          <section id="manuals">
+            <h2 class="section-title" data-i18n="sharedManuals">Shared manuals</h2>
+            <ul class="list" id="manual-list"></ul>
+            <div class="empty" id="empty" hidden>
+              <p data-i18n="emptyTitle">No manuals yet</p>
+              <p class="muted" data-i18n="emptyBody">
+                Upload PDF or Markdown manuals, or copy them into the share folder's manuals
+                directory and rescan.
+              </p>
+              <code>/share/manuals/</code>
+            </div>
+          </section>
+        </div>
+
+        <div id="memories-panel" hidden>
+          <div class="panel-actions">
+            <button type="button" class="text-button" id="new-memory" data-i18n="newMemory">
+              New memory
+            </button>
           </div>
-        </section>
+          <p class="empty muted" id="signed-out-memories" data-i18n="signedOut" hidden></p>
+          <section id="my-memories" hidden>
+            <h2 class="section-title" data-i18n="myMemories">My memories</h2>
+            <ul class="list" id="my-memory-list"></ul>
+            <p class="empty muted" id="my-memory-empty" data-i18n="emptyMyMemories"></p>
+          </section>
+          <section>
+            <h2 class="section-title" data-i18n="sharedMemories">Shared memories</h2>
+            <ul class="list" id="shared-memory-list"></ul>
+            <p class="empty muted" id="shared-memory-empty" data-i18n="emptySharedMemories"></p>
+          </section>
+        </div>
       </aside>
 
       <main class="viewer" id="viewer">
@@ -99,6 +157,8 @@
                 <path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" />
               </svg>
             </button>
+          </nav>
+          <div class="viewer-actions" id="viewer-actions" hidden>
             <a
               class="icon-button"
               id="open-original"
@@ -112,7 +172,14 @@
                 />
               </svg>
             </a>
-          </nav>
+            <button type="button" class="icon-button" id="delete" data-i18n-label="delete">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"
+                />
+              </svg>
+            </button>
+          </div>
         </header>
         <div class="canvas-wrap" id="canvas-wrap">
           <p class="placeholder muted" id="placeholder" data-i18n="pickManual">
@@ -120,6 +187,57 @@
           </p>
           <canvas id="canvas" hidden></canvas>
           <article class="markdown" id="markdown" hidden></article>
+        </div>
+      </main>
+
+      <main class="viewer" id="memory-pane" hidden>
+        <header class="bar viewer-bar">
+          <button type="button" class="icon-button back" id="memory-back" data-i18n-label="back">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
+            </svg>
+          </button>
+          <h2 class="viewer-title" id="memory-title" data-i18n="memory">Memory</h2>
+          <button
+            type="button"
+            class="icon-button"
+            id="memory-delete"
+            data-i18n-label="delete"
+            hidden
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"
+              />
+            </svg>
+          </button>
+        </header>
+        <div class="memory-wrap">
+          <p class="placeholder muted" id="memory-placeholder" data-i18n="pickMemory"></p>
+          <form class="memory-form" id="memory-form" hidden>
+            <label class="field">
+              <span data-i18n="memoryContent">What to remember</span>
+              <textarea id="memory-content" rows="5" required></textarea>
+            </label>
+            <label class="field">
+              <span data-i18n="memoryTags">Tags</span>
+              <input type="text" id="memory-tags" autocomplete="off" />
+            </label>
+            <fieldset class="scope" id="memory-scope">
+              <label>
+                <input type="radio" name="scope" id="memory-scope-personal" />
+                <span data-i18n="memoryPersonal">Only you</span>
+              </label>
+              <label>
+                <input type="radio" name="scope" id="memory-scope-shared" />
+                <span data-i18n="memoryShared">Shared with the household</span>
+              </label>
+            </fieldset>
+            <div class="form-actions">
+              <span class="muted" id="memory-status" role="status" aria-live="polite"></span>
+              <button type="submit" class="filled-button" data-i18n="save">Save</button>
+            </div>
+          </form>
         </div>
       </main>
     </div>

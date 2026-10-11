@@ -1,7 +1,7 @@
 #!/bin/sh
 # ==============================================================================
 # Full-container verification: boots the add-on image under s6 and exercises
-# all eight MCP tools against the real local embedding sidecar.
+# all six MCP tools against the real local embedding sidecar.
 #
 #   sh scripts/smoke.sh [image-tag]
 #

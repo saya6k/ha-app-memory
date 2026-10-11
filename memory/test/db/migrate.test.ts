@@ -265,6 +265,7 @@ describe('re-embedding migration', () => {
       seeded,
       {
         id: 'm',
+        owner: '',
         path: 'Washer.pdf',
         title: 'Washer',
         format: 'pdf',
@@ -302,6 +303,7 @@ describe('re-embedding migration', () => {
       seeded,
       {
         id: 'm',
+        owner: '',
         path: 'Washer.pdf',
         title: 'Washer',
         format: 'pdf',
@@ -313,7 +315,9 @@ describe('re-embedding migration', () => {
       },
       [{ page: 1, content: 'text', embedding: new Array(1024).fill(0.1) as number[] }],
     );
-    seeded.exec('DELETE FROM meta');
+    // Only the model record: a database from before meta existed had no
+    // manual index at all, so its version record stays.
+    seeded.exec("DELETE FROM meta WHERE key = 'embedding_model'");
     seeded.close();
 
     const { migrate } = await moduleFor({ model: 'model-a.gguf' });

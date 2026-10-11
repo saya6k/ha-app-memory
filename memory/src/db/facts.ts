@@ -1,4 +1,5 @@
 import type { DbConnection } from './client.js';
+import type { Owner } from './manuals.js';
 
 export class FactNotFoundError extends Error {
   constructor(id: string) {
@@ -8,6 +9,8 @@ export class FactNotFoundError extends Error {
 
 export interface Fact {
   id: string;
+  /** '' when shared by the household, else the HA user id it belongs to. */
+  owner: Owner;
   content: string;
   tags: string[];
   createdAt: string;
@@ -20,6 +23,7 @@ function toFloat32(embedding: number[]): Float32Array {
 
 function rowToFact(row: {
   id: string;
+  owner: string;
   content: string;
   tags: string;
   created_at: string;
@@ -27,6 +31,7 @@ function rowToFact(row: {
 }): Fact {
   return {
     id: row.id,
+    owner: row.owner,
     content: row.content,
     tags: JSON.parse(row.tags) as string[],
     createdAt: row.created_at,
@@ -36,12 +41,26 @@ function rowToFact(row: {
 
 export function insertFact(
   db: DbConnection,
-  params: { id: string; content: string; tags: string[]; embedding: number[]; now: string },
+  params: {
+    id: string;
+    owner: Owner;
+    content: string;
+    tags: string[];
+    embedding: number[];
+    now: string;
+  },
 ): Fact {
   const insert = db.transaction(() => {
     db.prepare(
-      'INSERT INTO facts (id, content, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
-    ).run(params.id, params.content, JSON.stringify(params.tags), params.now, params.now);
+      'INSERT INTO facts (id, owner, content, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+    ).run(
+      params.id,
+      params.owner,
+      params.content,
+      JSON.stringify(params.tags),
+      params.now,
+      params.now,
+    );
     db.prepare('INSERT INTO vec_facts (id, embedding) VALUES (?, ?)').run(
       params.id,
       toFloat32(params.embedding),
@@ -51,6 +70,7 @@ export function insertFact(
 
   return {
     id: params.id,
+    owner: params.owner,
     content: params.content,
     tags: params.tags,
     createdAt: params.now,
@@ -106,6 +126,14 @@ export function deleteFact(db: DbConnection, id: string): void {
     db.prepare('DELETE FROM vec_facts WHERE id = ?').run(id);
   });
   del();
+}
+
+/** Every fact one owner has, newest first — for the panel's memory list. */
+export function listFacts(db: DbConnection, owner: Owner): Fact[] {
+  const rows = db
+    .prepare('SELECT * FROM facts WHERE owner = ? ORDER BY created_at DESC')
+    .all(owner) as Parameters<typeof rowToFact>[0][];
+  return rows.map(rowToFact);
 }
 
 /** Fetches facts by id, returned in the same order as `ids` (unknown ids are skipped). */

@@ -51,7 +51,9 @@ try {
       `[db-migrate] migrated ${result.factCount} facts — ${result.reason ?? 'reason unknown'}`,
     );
     if (result.manualCount > 0) {
-      console.log(`[db-migrate] ${result.manualCount} manuals will be re-indexed in the background`);
+      console.log(
+        `[db-migrate] ${result.manualCount} manuals will be re-indexed in the background`,
+      );
     }
   }
 } catch (error) {

@@ -14,6 +14,8 @@ import {
   type Manual,
   type ManualChunk,
   type ManualFormat,
+  type Owner,
+  SHARED,
 } from '../db/manuals.js';
 import type { EmbeddingClient } from '../embedding/types.js';
 import { logError } from '../log.js';
@@ -29,11 +31,14 @@ export interface SyncResult {
   moved: number;
   removed: number;
   unchanged: number;
-  /** Files whose content is already indexed under another path; skipped. */
-  duplicates: { path: string; of: string }[];
+  /** Files whose content the same owner already has indexed under another path; skipped. */
+  duplicates: { owner: Owner; path: string; of: string }[];
   /** Files that could not be read or embedded; the rest of the sync still went through. */
-  failed: { path: string; error: string }[];
-  /** False when MANUALS_DIR does not exist — nothing was scanned, and nothing removed. */
+  failed: { owner: Owner; path: string; error: string }[];
+  /**
+   * False when the shared manuals folder does not exist — nothing in it was
+   * scanned, and no shared manual removed.
+   */
   dirFound: boolean;
 }
 
@@ -42,10 +47,24 @@ export type IndexOperation = 'sync' | 'reindex' | 'reset';
 export interface IndexStatus {
   running: boolean;
   operation?: IndexOperation;
-  /** The file being indexed right now, relative to the manuals directory. */
-  current?: string;
+  /** The file being indexed right now, relative to its owner's folder. */
+  current?: { owner: Owner; path: string };
   lastSync?: SyncResult & { finishedAt: string };
 }
+
+/** A folder of documents and whose they are. */
+interface IndexRoot {
+  owner: Owner;
+  dir: string;
+}
+
+/** Where a user's personal documents live: <usersDir>/<HA user id>/documents. */
+export function userDocumentsDir(usersDir: string, userId: string): string {
+  return join(usersDir, userId, 'documents');
+}
+
+/** HA user ids are hex; anything else in the users folder is not ours. */
+const USER_ID = /^[0-9a-zA-Z_-]+$/;
 
 interface ManualFile {
   path: string;
@@ -95,8 +114,9 @@ function titleOf(path: string): string {
 }
 
 /**
- * Keeps the manual index in step with the files on disk. A manual is identified
- * by its content hash, so only content the index has never seen is embedded:
+ * Keeps the index in step with the files on disk: the shared manuals folder and
+ * each user's documents folder. Within an owner a document is identified by its
+ * content hash, so only content the index has never seen is embedded:
  *
  * - same path, same size and mtime: skipped without reading the file
  * - otherwise the file is hashed, and if that content is already indexed —
@@ -106,27 +126,46 @@ function titleOf(path: string): string {
  * - new content is extracted, chunked and embedded
  * - manuals whose file is gone are dropped
  *
- * One operation at a time: a sync requested while one runs gets that run's
- * result, and a reset or reindex waits for whatever is running.
+ * One operation at a time. A sync requested while one is running queues
+ * another, so a file written meanwhile (an upload) is not missed; requests
+ * made before that queued sync starts share it. A reset or reindex waits for
+ * whatever is running.
  */
 export class ManualIndexer {
   private queue: Promise<unknown> = Promise.resolve();
   /** Queued or running operations; counted at once so status never lags a request. */
   private pending = 0;
+  /** A sync that is queued but has not started yet, for later requests to join. */
   private pendingSync: Promise<SyncResult> | undefined;
   private operation: IndexOperation | undefined;
-  private current: string | undefined;
+  private current: IndexStatus['current'];
   private lastSync: IndexStatus['lastSync'];
 
   constructor(
     private readonly db: DbConnection,
     private readonly embedding: EmbeddingClient,
+    /** The shared manuals folder. */
     private readonly dir: string,
     private readonly extract: (
       path: string,
       format: ManualFormat,
     ) => Promise<ExtractedManual> = extractManual,
+    /** Parent of the per-user folders; personal documents are not indexed without it. */
+    private readonly usersDir?: string,
   ) {}
+
+  /** The shared folder, then every user folder that exists. */
+  private async roots(): Promise<IndexRoot[]> {
+    const roots: IndexRoot[] = [{ owner: SHARED, dir: this.dir }];
+    if (!this.usersDir) return roots;
+    const entries = await readdir(this.usersDir, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      if (entry.isDirectory() && USER_ID.test(entry.name)) {
+        roots.push({ owner: entry.name, dir: userDocumentsDir(this.usersDir, entry.name) });
+      }
+    }
+    return roots;
+  }
 
   get status(): IndexStatus {
     return {
@@ -139,8 +178,9 @@ export class ManualIndexer {
 
   /** Index new and changed files, drop deleted ones. */
   sync(): Promise<SyncResult> {
-    this.pendingSync ??= this.enqueue('sync', () => this.run()).finally(() => {
+    this.pendingSync ??= this.enqueue('sync', () => {
       this.pendingSync = undefined;
+      return this.run();
     });
     return this.pendingSync;
   }
@@ -189,38 +229,28 @@ export class ManualIndexer {
       dirFound: true,
     };
 
-    const files = await scan(this.dir);
-    if (files === undefined) {
-      result.dirFound = false;
-    } else {
-      const onDisk = new Set(files.map((f) => f.path));
-      const byPath = new Map(listManuals(this.db).map((m) => [m.path, m]));
-
-      // Known paths first: a file edited in place must give up its old content
-      // before another file is matched against it, or a copy of the old
-      // version would be taken for a duplicate of a file that no longer has it.
-      const known = files.filter((f) => byPath.has(f.path));
-      const unknown = files.filter((f) => !byPath.has(f.path));
-
-      for (const file of [...known, ...unknown]) {
-        this.current = file.path;
-        try {
-          await this.syncFile(file, byPath.get(file.path), onDisk, result);
-        } catch (error) {
-          logError('manual-index', error);
-          result.failed.push({
-            path: file.path,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
+    // Owners whose folder was read, with the paths found in it.
+    const scanned = new Map<Owner, Set<string>>();
+    for (const root of await this.roots()) {
+      const files = await scan(root.dir);
+      if (files === undefined) {
+        if (root.owner === SHARED) result.dirFound = false;
+        else scanned.set(root.owner, new Set()); // documents folder gone: nothing left
+        continue;
       }
+      scanned.set(root.owner, new Set(files.map((f) => f.path)));
+      await this.syncRoot(root, files, result);
+    }
 
-      // Whatever still points at a missing file was neither moved nor kept.
-      for (const manual of listManuals(this.db)) {
-        if (!onDisk.has(manual.path)) {
-          deleteManual(this.db, manual.id);
-          result.removed += 1;
-        }
+    // Whatever still points at a missing file was neither moved nor kept. An
+    // owner with no folder at all (a removed user) loses everything; the
+    // shared manuals are kept when their folder could not be read.
+    for (const manual of listManuals(this.db)) {
+      const onDisk = scanned.get(manual.owner);
+      const gone = onDisk ? !onDisk.has(manual.path) : manual.owner !== SHARED;
+      if (gone) {
+        deleteManual(this.db, manual.id);
+        result.removed += 1;
       }
     }
 
@@ -228,7 +258,33 @@ export class ManualIndexer {
     return result;
   }
 
+  private async syncRoot(root: IndexRoot, files: ManualFile[], result: SyncResult): Promise<void> {
+    const onDisk = new Set(files.map((f) => f.path));
+    const byPath = new Map(listManuals(this.db, root.owner).map((m) => [m.path, m]));
+
+    // Known paths first: a file edited in place must give up its old content
+    // before another file is matched against it, or a copy of the old
+    // version would be taken for a duplicate of a file that no longer has it.
+    const known = files.filter((f) => byPath.has(f.path));
+    const unknown = files.filter((f) => !byPath.has(f.path));
+
+    for (const file of [...known, ...unknown]) {
+      this.current = { owner: root.owner, path: file.path };
+      try {
+        await this.syncFile(root, file, byPath.get(file.path), onDisk, result);
+      } catch (error) {
+        logError('manual-index', error);
+        result.failed.push({
+          owner: root.owner,
+          path: file.path,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  }
+
   private async syncFile(
+    root: IndexRoot,
     file: ManualFile,
     existing: Manual | undefined,
     onDisk: Set<string>,
@@ -239,14 +295,14 @@ export class ManualIndexer {
       return;
     }
 
-    const hash = await sha256(join(this.dir, file.path));
+    const hash = await sha256(join(root.dir, file.path));
     const location = {
       path: file.path,
       title: titleOf(file.path),
       size: file.size,
       mtimeMs: file.mtimeMs,
     };
-    const indexed = getManualByHash(this.db, hash);
+    const indexed = getManualByHash(this.db, root.owner, hash);
 
     if (indexed) {
       if (indexed.path === file.path) {
@@ -254,7 +310,7 @@ export class ManualIndexer {
         relocateManual(this.db, indexed.id, location);
         result.unchanged += 1;
       } else if (onDisk.has(indexed.path)) {
-        result.duplicates.push({ path: file.path, of: indexed.path });
+        result.duplicates.push({ owner: root.owner, path: file.path, of: indexed.path });
         // This path's own previous content, if any, is gone now.
         if (existing) deleteManual(this.db, existing.id);
       } else {
@@ -265,13 +321,13 @@ export class ManualIndexer {
       return;
     }
 
-    await this.index(file, hash, existing?.id ?? randomUUID());
+    await this.index(root, file, hash, existing?.id ?? randomUUID());
     result[existing ? 'updated' : 'added'] += 1;
   }
 
-  private async index(file: ManualFile, hash: string, id: string): Promise<void> {
+  private async index(root: IndexRoot, file: ManualFile, hash: string, id: string): Promise<void> {
     const title = titleOf(file.path);
-    const { pageCount, parts } = await this.extract(join(this.dir, file.path), file.format);
+    const { pageCount, parts } = await this.extract(join(root.dir, file.path), file.format);
 
     // Embedded before anything is written, so a failure leaves the previous
     // index of this file in place rather than half of a new one.
@@ -290,6 +346,7 @@ export class ManualIndexer {
       this.db,
       {
         id,
+        owner: root.owner,
         path: file.path,
         title,
         format: file.format,

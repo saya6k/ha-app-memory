@@ -33,6 +33,8 @@ bashio::log.info "Embedding sidecar is ready."
 export DB_PATH=/data/facts.sqlite
 export MCP_PORT=8099
 export MANUALS_DIR=/share/manuals
+# Personal documents, one folder per Home Assistant user id.
+export USERS_DIR=/data/users
 # The manuals panel answers only Supervisor's ingress proxy.
 export UI_PORT=8100
 export UI_ALLOWED_ADDRESS=172.30.32.2

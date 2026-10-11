@@ -6,8 +6,9 @@ description: >-
   Personal fact memory for Assist conversation agents over MCP. Stores facts
   with vector embeddings and retrieves them by meaning, using a local
   llama.cpp embedding model — no external API and no internet at query time.
-  Also makes the PDF and Markdown appliance manuals in /share/manuals
-  searchable, with a panel to read them.
+  Each household member gets memories and documents of their own, and one
+  search covers them together with the shared appliance manuals in
+  /share/manuals. A panel lets everyone read and manage what they may see.
 url: https://github.com/saya6k/ha-app-memory
 arch:
   - aarch64
@@ -20,13 +21,18 @@ discovery:
 # endpoint, and the panel is restricted to the ingress proxy while MCP is not.
 ingress: true
 ingress_port: 8100
-panel_icon: mdi:book-open-variant
-panel_title: Manuals
+panel_icon: mdi:brain
+panel_title: Memory
+# Every household member manages their own memories and documents here, so
+# the panel is not admin-only; it shows each person only what they may see.
 panel_admin: false
-# Manuals are only ever read; the add-on never writes to /share.
+# Reads the household's person entities to match names to Home Assistant users.
+homeassistant_api: true
+# Writable for the panel's upload and delete. The server only ever writes
+# inside /share/manuals; the rest of /share is left alone.
 map:
   - type: share
-    read_only: true
+    read_only: false
 ports:
   8099/tcp: null
 ports_description:

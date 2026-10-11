@@ -1,15 +1,20 @@
-import { EMBEDDING_DIMENSIONS } from '../config.js';
 import type { DbConnection } from './client.js';
+import { MANUAL_INDEX_VERSION, MANUAL_SCHEMA_SQL, META_MANUAL_INDEX_VERSION } from './schema.js';
 
 export type ManualFormat = 'pdf' | 'markdown';
 
+/** '' for the shared manuals, else the HA user id whose personal document it is. */
+export type Owner = string;
+export const SHARED: Owner = '';
+
 export interface Manual {
   id: string;
-  /** Relative to MANUALS_DIR, always with `/` separators. */
+  owner: Owner;
+  /** Relative to the owner's folder, always with `/` separators. */
   path: string;
   title: string;
   format: ManualFormat;
-  /** Hex SHA-256 of the file. Unique: one manual per distinct content. */
+  /** Hex SHA-256 of the file. Unique per owner: one manual per distinct content. */
   sha256: string;
   size: number;
   mtimeMs: number;
@@ -34,6 +39,7 @@ export type ManualLocation = Pick<Manual, 'path' | 'title' | 'size' | 'mtimeMs'>
 
 function rowToManual(row: {
   id: string;
+  owner: string;
   path: string;
   title: string;
   format: ManualFormat;
@@ -46,6 +52,7 @@ function rowToManual(row: {
 }): Manual {
   return {
     id: row.id,
+    owner: row.owner,
     path: row.path,
     title: row.title,
     format: row.format,
@@ -60,10 +67,13 @@ function rowToManual(row: {
 
 type ManualRow = Parameters<typeof rowToManual>[0];
 
-export function listManuals(db: DbConnection): Manual[] {
-  const rows = db
-    .prepare('SELECT * FROM manuals ORDER BY title COLLATE NOCASE')
-    .all() as ManualRow[];
+/** One owner's manuals, or every manual when `owner` is omitted. */
+export function listManuals(db: DbConnection, owner?: Owner): Manual[] {
+  const rows = (
+    owner === undefined
+      ? db.prepare('SELECT * FROM manuals ORDER BY title COLLATE NOCASE').all()
+      : db.prepare('SELECT * FROM manuals WHERE owner = ? ORDER BY title COLLATE NOCASE').all(owner)
+  ) as ManualRow[];
   return rows.map(rowToManual);
 }
 
@@ -72,9 +82,14 @@ export function getManual(db: DbConnection, id: string): Manual | undefined {
   return row ? rowToManual(row) : undefined;
 }
 
-export function getManualByHash(db: DbConnection, sha256: string): Manual | undefined {
-  const row = db.prepare('SELECT * FROM manuals WHERE sha256 = ?').get(sha256) as
-    ManualRow | undefined;
+export function getManualByHash(
+  db: DbConnection,
+  owner: Owner,
+  sha256: string,
+): Manual | undefined {
+  const row = db
+    .prepare('SELECT * FROM manuals WHERE owner = ? AND sha256 = ?')
+    .get(owner, sha256) as ManualRow | undefined;
   return row ? rowToManual(row) : undefined;
 }
 
@@ -98,10 +113,11 @@ export function replaceManual(
     deleteChunks(db, manual.id);
     db.prepare(
       `INSERT OR REPLACE INTO manuals
-         (id, path, title, format, sha256, size, mtime_ms, page_count, chunk_count, indexed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, owner, path, title, format, sha256, size, mtime_ms, page_count, chunk_count, indexed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       manual.id,
+      manual.owner,
       manual.path,
       manual.title,
       manual.format,
@@ -148,27 +164,41 @@ export function deleteManual(db: DbConnection, id: string): void {
   })();
 }
 
+const MANUAL_TABLES = ['vec_manual_chunks', 'manual_chunks', 'manuals'];
+
 /**
- * Empties the manual index. The vec0 table is recreated rather than emptied,
- * which both frees its space and picks up the configured width — the
+ * Empties the document index. The tables are recreated rather than emptied,
+ * which frees the vectors' space and picks up the configured width — the
  * migration relies on that after a dimension change.
  */
 export function clearManualIndex(db: DbConnection): void {
   db.transaction(() => {
-    db.exec('DELETE FROM manuals');
-    db.exec('DELETE FROM manual_chunks');
-    db.exec('DROP TABLE IF EXISTS vec_manual_chunks');
-    db.exec(
-      `CREATE VIRTUAL TABLE vec_manual_chunks USING vec0(
-         id INTEGER PRIMARY KEY,
-         embedding FLOAT[${EMBEDDING_DIMENSIONS}] distance_metric=cosine
-       )`,
+    for (const table of MANUAL_TABLES) db.exec(`DROP TABLE IF EXISTS ${table}`);
+    db.exec(MANUAL_SCHEMA_SQL);
+    db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run(
+      META_MANUAL_INDEX_VERSION,
+      MANUAL_INDEX_VERSION,
     );
   })();
 }
 
+/**
+ * Creates the document index, or replaces one of an older shape. Its contents
+ * are rebuilt from the files by the next sync, so replacing it loses nothing.
+ */
+export function ensureManualIndex(db: DbConnection): void {
+  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(META_MANUAL_INDEX_VERSION) as
+    { value: string } | undefined;
+  if (row?.value === MANUAL_INDEX_VERSION) {
+    db.exec(MANUAL_SCHEMA_SQL);
+    return;
+  }
+  clearManualIndex(db);
+}
+
 export interface ManualChunkMatch {
   manualId: string;
+  owner: Owner;
   title: string;
   path: string;
   format: ManualFormat;
@@ -178,20 +208,28 @@ export interface ManualChunkMatch {
   distance: number;
 }
 
-/** KNN over every indexed chunk, nearest first. */
+/**
+ * KNN over the chunks visible to `owners` (shared, plus the asking user's own),
+ * nearest first. vec0 cannot filter by owner inside the MATCH, so candidates
+ * are over-fetched and filtered here, as search does for tags; fine at
+ * household scale.
+ */
 export function searchManualChunks(
   db: DbConnection,
   embedding: number[],
   k: number,
+  owners: Owner[],
 ): ManualChunkMatch[] {
-  return db
+  const candidates = db
     .prepare(
-      `SELECT m.id AS manualId, m.title, m.path, m.format, c.page, c.section, c.content, v.distance
+      `SELECT m.id AS manualId, m.owner, m.title, m.path, m.format, c.page, c.section, c.content,
+              v.distance
          FROM (SELECT id, distance FROM vec_manual_chunks
                 WHERE embedding MATCH ? AND k = ?) v
          JOIN manual_chunks c ON c.id = v.id
          JOIN manuals m ON m.id = c.manual_id
         ORDER BY v.distance`,
     )
-    .all(new Float32Array(embedding), k) as ManualChunkMatch[];
+    .all(new Float32Array(embedding), Math.max(k * 10, 50)) as ManualChunkMatch[];
+  return candidates.filter((c) => owners.includes(c.owner)).slice(0, k);
 }

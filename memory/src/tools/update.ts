@@ -4,12 +4,15 @@ import type { DbConnection } from '../db/client.js';
 import { FactNotFoundError, getFact, updateFact } from '../db/facts.js';
 import type { EmbeddingClient } from '../embedding/types.js';
 import { logError, logToolCall } from '../log.js';
+import type { UserDirectory } from '../users.js';
 import { updateFactSchema } from './schemas.js';
+import { canSee, presentFact, scopeFor } from './scope.js';
 
 export function registerUpdateTool(
   server: McpServer,
   db: DbConnection,
   embeddingClient: EmbeddingClient,
+  users: UserDirectory,
 ): void {
   server.registerTool(
     'update',
@@ -19,16 +22,18 @@ export function registerUpdateTool(
         'user used — do not translate it. Re-embeds only when content actually changes.',
       inputSchema: updateFactSchema,
     },
-    async ({ id, fact }) => {
+    async ({ id, user, fact }) => {
       logToolCall('update', {
         id,
+        user: user !== undefined,
         contentProvided: fact.content !== undefined,
         tagsProvided: fact.tags !== undefined,
       });
 
       try {
+        const scope = await scopeFor(users, user);
         const existing = getFact(db, id);
-        if (!existing) {
+        if (!existing || !canSee(scope, existing.owner)) {
           throw new FactNotFoundError(id);
         }
 
@@ -48,7 +53,7 @@ export function registerUpdateTool(
           now: new Date().toISOString(),
         });
 
-        return { content: [{ type: 'text', text: JSON.stringify(updated) }] };
+        return { content: [{ type: 'text', text: JSON.stringify(presentFact(updated)) }] };
       } catch (error) {
         logError('update', error);
         throw error;
