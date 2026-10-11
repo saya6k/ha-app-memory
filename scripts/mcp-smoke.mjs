@@ -91,19 +91,22 @@ check(
 );
 
 console.log('\n=== 7. manuals in the one search (smoke.sh mounts test/fixtures as /share/manuals) ===');
-// Indexing runs in the background after startup; give it a moment.
-const findManual = async (query) => {
+// Indexing runs in the background after startup, one file at a time, so wait
+// until the manual being asked about is in the results — the other fixture may
+// be indexed, and found, first.
+const findManual = async (query, title) => {
+  let hits = [];
   for (let i = 0; i < 60; i++) {
-    const hits = content(
+    hits = content(
       await rpc('tools/call', { name: 'search', arguments: { query, limit: 5 } }),
     ).filter((h) => h.type === 'manual');
-    if (hits.length > 0) return hits;
+    if (hits.some((h) => h.title === title)) return hits;
     await new Promise((r) => setTimeout(r, 1000));
   }
-  return [];
+  return hits;
 };
 
-const pdfHits = await findManual('What does error E3 mean on the washer?');
+const pdfHits = await findManual('What does error E3 mean on the washer?', 'washer-ko');
 console.log('  ', JSON.stringify(pdfHits).slice(0, 300));
 check(
   'cross-lingual PDF manual hit lands on the right page',
@@ -111,7 +114,7 @@ check(
   pdfHits[0] ? `${pdfHits[0].title} p.${pdfHits[0].page}` : 'no results',
 );
 
-const mdHits = await findManual('How do I empty the water tank on the dryer?');
+const mdHits = await findManual('How do I empty the water tank on the dryer?', 'dryer-ko');
 console.log('  ', JSON.stringify(mdHits).slice(0, 300));
 check(
   'cross-lingual Markdown manual hit lands on the right section',
