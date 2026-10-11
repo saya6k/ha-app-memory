@@ -1,4 +1,4 @@
-import { EMBEDDING_DIMENSIONS, EMBEDDING_DOCUMENT_PREFIX, EMBEDDING_MODEL } from '../config.js';
+import { EMBEDDING_DIMENSIONS, EMBEDDING_DOCUMENT_PREFIX, EMBEDDING_MODEL_ID } from '../config.js';
 import type { EmbeddingClient } from '../embedding/types.js';
 import { openDb, type DbConnection } from './client.js';
 import { clearManualIndex } from './manuals.js';
@@ -52,8 +52,8 @@ function migrationReason(state: StoredState, vectorCount: number): string | unde
     return vectorCount > 0 ? 'database predates model tracking' : undefined;
   }
 
-  if (state.model !== EMBEDDING_MODEL) {
-    return `embedding model changed ("${state.model}" -> "${EMBEDDING_MODEL}")`;
+  if (state.model !== EMBEDDING_MODEL_ID) {
+    return `embedding model changed ("${state.model}" -> "${EMBEDDING_MODEL_ID}")`;
   }
 
   if (state.documentPrefix !== EMBEDDING_DOCUMENT_PREFIX) {
@@ -125,7 +125,7 @@ export async function migrate(
       clearManualIndex(db);
 
       const setMeta = db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)');
-      setMeta.run(META_EMBEDDING_MODEL, EMBEDDING_MODEL);
+      setMeta.run(META_EMBEDDING_MODEL, EMBEDDING_MODEL_ID);
       setMeta.run(META_DOCUMENT_PREFIX, EMBEDDING_DOCUMENT_PREFIX);
     })();
 

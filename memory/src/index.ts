@@ -6,12 +6,6 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 
 import {
   DB_PATH,
-  EMBEDDING_API_KEY,
-  EMBEDDING_BASE_URL,
-  EMBEDDING_DOCUMENT_PREFIX,
-  EMBEDDING_MODEL,
-  EMBEDDING_QUERY_PREFIX,
-  EMBEDDING_SOCKET_PATH,
   HA_API_URL,
   MANUALS_DIR,
   MCP_PORT,
@@ -21,7 +15,7 @@ import {
   USERS_DIR,
 } from './config.js';
 import { openDb } from './db/client.js';
-import { HttpEmbeddingClient } from './embedding/client.js';
+import { configuredEmbeddingClient } from './embedding/configured.js';
 import { logError } from './log.js';
 import { ManualIndexer } from './manuals/indexer.js';
 import { registerDeleteTool } from './tools/delete.js';
@@ -35,14 +29,7 @@ import { HomeAssistantUsers, NO_USERS } from './users.js';
 
 mkdirSync(dirname(DB_PATH), { recursive: true });
 const db = openDb(DB_PATH);
-const embeddingClient = new HttpEmbeddingClient({
-  baseUrl: EMBEDDING_BASE_URL,
-  socketPath: EMBEDDING_SOCKET_PATH,
-  apiKey: EMBEDDING_API_KEY,
-  model: EMBEDDING_MODEL,
-  queryPrefix: EMBEDDING_QUERY_PREFIX,
-  documentPrefix: EMBEDDING_DOCUMENT_PREFIX,
-});
+const embeddingClient = configuredEmbeddingClient();
 const indexer = new ManualIndexer(db, embeddingClient, MANUALS_DIR, undefined, USERS_DIR);
 const users = SUPERVISOR_TOKEN ? new HomeAssistantUsers(HA_API_URL, SUPERVISOR_TOKEN) : NO_USERS;
 

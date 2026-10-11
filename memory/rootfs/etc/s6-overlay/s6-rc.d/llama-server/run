@@ -13,9 +13,23 @@ readonly SOCKET=/run/llama/embed.sock
 
 # shellcheck source=/dev/null
 source /usr/lib/ha-memory/options.sh
+# shellcheck source=/dev/null
+source /usr/lib/ha-memory/embedding.sh
+
+# With a remote provider there is no sidecar to run. Idle instead of exiting:
+# a longrun that exits is restarted by s6, and its finish script would take
+# the add-on down.
+if [[ "$(embedding_provider)" != "local" ]]; then
+    bashio::log.info "Embedding provider is $(embedding_provider) — the local sidecar is not started."
+    exec sleep infinity
+fi
 
 model_file="$(option model_file)"
 threads="$(option threads)"
+# The longest input in tokens. A bidirectional embedding model must see a whole
+# input in one ubatch, so context, batch and ubatch are all this size.
+context_size="$(option context_size)"
+context_size="${context_size:-512}"
 model="${MODEL_DIR}/${model_file}"
 
 # The model-download oneshot ran first (see dependencies.d) and this service is
@@ -51,7 +65,11 @@ umask 0077
 
 # llama-server binds a unix socket when --host ends in .sock (--port is ignored).
 #
-# Everything below --ctx-size trims defaults that are meant for text generation
+# --ctx-size, --batch-size and --ubatch-size are all context_size: an
+# embedding is computed over its whole input at once, so the longest input is
+# the whole budget. A larger context costs memory roughly in proportion.
+#
+# Everything below them trims defaults that are meant for text generation
 # and are pure waste for an embeddings-only sidecar. They matter: with the stock
 # defaults this peaks around 1.6 GiB and gets OOM-killed (SIGKILL) on a 4-8 GiB
 # Home Assistant device once other add-ons are running.
@@ -67,19 +85,29 @@ umask 0077
 #   --no-context-shift no sliding window; inputs longer than the context should
 #                      fail loudly instead of being silently truncated
 #   --no-ui            we only ever call /v1/embeddings and /health
-bashio::log.info "Starting embedding sidecar on ${SOCKET} (threads=${threads})"
+#
+# --flash-attn off keeps attention in F32. With flash attention, llama.cpp casts
+# K and V to F16 (llama-graph.cpp, build_attn_mha), and EmbeddingGemma 2's model
+# card warns against F16: its activations can overflow it into NaN or degraded
+# vectors. On CPU the default, auto, turns flash attention on. Measured on
+# aarch64 with Q8_0 at context 512: no NaN either way and cosine >= 0.9998
+# between the two, so this is insurance rather than a fix, and costs little at
+# this context size. The model keeps no KV cache, so the cache type does not
+# matter for it.
+bashio::log.info "Starting embedding sidecar on ${SOCKET} (threads=${threads}, context=${context_size})"
 exec /opt/llama/llama-server \
     --model "${model}" \
     --embeddings \
     --host "${SOCKET}" \
     --threads "${threads}" \
-    --ctx-size 2048 \
-    --batch-size 512 \
-    --ubatch-size 512 \
+    --ctx-size "${context_size}" \
+    --batch-size "${context_size}" \
+    --ubatch-size "${context_size}" \
     --parallel 1 \
     --cache-ram 0 \
     --no-repack \
     --no-warmup \
     --no-context-shift \
+    --flash-attn off \
     --no-ui \
     --verbosity "${llama_verbosity}"

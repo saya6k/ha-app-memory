@@ -78,6 +78,8 @@ CREATE VIRTUAL TABLE IF NOT EXISTS vec_manual_chunks USING vec0(
 `;
 
 export const META_MANUAL_INDEX_VERSION = 'manual_index_version';
+/** The chunk_size the document index was cut with; a different one rebuilds it. */
+export const META_CHUNK_SIZE = 'chunk_size';
 
 export const META_EMBEDDING_MODEL = 'embedding_model';
 /**

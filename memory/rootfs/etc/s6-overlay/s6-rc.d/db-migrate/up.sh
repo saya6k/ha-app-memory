@@ -1,46 +1,31 @@
 #!/command/with-contenv bashio
 # shellcheck shell=bash
 # ==============================================================================
-# Re-embeds stored facts when the embedding model or vector width has changed.
+# Re-embeds stored facts when the embedding model or vector width has changed,
+# and empties the document index when it was built differently.
 #
 # A oneshot rather than part of mcp-server: migrating is a one-time step, and if
 # it fails the add-on must stop once with the reason on screen
 # (S6_BEHAVIOUR_IF_STAGE2_FAILS=2) instead of crash-looping the server.
 #
 # It depends on llama-server, but s6 only orders *starts*, so wait for the
-# sidecar's socket to answer before asking it for embeddings.
+# sidecar's socket to answer before asking it for embeddings (a remote
+# provider has nothing to wait for).
 # ==============================================================================
 set -euo pipefail
 
-readonly SOCKET=/run/llama/embed.sock
-
 # shellcheck source=/dev/null
 source /usr/lib/ha-memory/options.sh
+# shellcheck source=/dev/null
+source /usr/lib/ha-memory/embedding.sh
 
-ready=0
-for _ in $(seq 1 900); do
-    if curl -sf --max-time 2 --unix-socket "${SOCKET}" \
-        http://localhost/health > /dev/null 2>&1; then
-        ready=1
-        break
-    fi
-    sleep 2
-done
-
-if [[ "${ready}" -ne 1 ]]; then
+if ! wait_for_sidecar; then
     bashio::log.fatal "Embedding sidecar did not become ready within 30 minutes."
     exit 1
 fi
 
 export DB_PATH=/data/facts.sqlite
-export EMBEDDING_BASE_URL=http://localhost
-export EMBEDDING_SOCKET_PATH="${SOCKET}"
-EMBEDDING_MODEL="$(option model_file)"
-EMBEDDING_DIMENSIONS="$(option embedding_dimensions)"
-# Unset prefixes come through as "", which is what the app defaults to anyway.
-EMBEDDING_QUERY_PREFIX="$(option query_prefix)"
-EMBEDDING_DOCUMENT_PREFIX="$(option document_prefix)"
-export EMBEDDING_MODEL EMBEDDING_DIMENSIONS EMBEDDING_QUERY_PREFIX EMBEDDING_DOCUMENT_PREFIX
+export_embedding_env
 
 cd /opt/mcp-server
 exec node dist/db-migrate.js

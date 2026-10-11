@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import * as sqliteVec from 'sqlite-vec';
 
-import { EMBEDDING_DIMENSIONS, EMBEDDING_DOCUMENT_PREFIX, EMBEDDING_MODEL } from '../config.js';
+import { EMBEDDING_DIMENSIONS, EMBEDDING_DOCUMENT_PREFIX, EMBEDDING_MODEL_ID } from '../config.js';
 import { ensureManualIndex } from './manuals.js';
 import { META_DOCUMENT_PREFIX, META_EMBEDDING_MODEL, SCHEMA_SQL } from './schema.js';
 
@@ -49,21 +49,21 @@ function assertModelMatches(db: DbConnection): void {
   if (row === undefined) {
     db.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run(
       META_EMBEDDING_MODEL,
-      EMBEDDING_MODEL,
+      EMBEDDING_MODEL_ID,
     );
     return;
   }
 
-  if (row.value === EMBEDDING_MODEL) {
+  if (row.value === EMBEDDING_MODEL_ID) {
     return;
   }
 
   throw new ModelMismatchError(
     `This memory database was written by the embedding model "${row.value}", but the ` +
-      `add-on is now configured for "${EMBEDDING_MODEL}". Vectors from a different model ` +
+      `add-on is now configured for "${EMBEDDING_MODEL_ID}". Vectors from a different model ` +
       `are not comparable, so the stored memories would no longer be found by meaning. ` +
-      `Set model_file back to "${row.value}", or delete the database file to start a ` +
-      `fresh memory.`,
+      `Restart the add-on so the stored memories are re-embedded, set the embedding ` +
+      `model back to "${row.value}", or delete the database file to start a fresh memory.`,
   );
 }
 
