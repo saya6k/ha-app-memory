@@ -24,14 +24,15 @@ function sleep(ms: number): Promise<void> {
 /**
  * What every provider shares: the prefix for the kind of text, bounded
  * retries, auth, a timeout, and a check that the vector has the configured
- * width — a model of a different size would otherwise fail later and far less
- * clearly, inside sqlite-vec. Subclasses only build the request and read the
+ * width (or can be shortened to it) — a model of a different size would
+ * otherwise fail later and far less clearly, inside sqlite-vec. Subclasses only build the request and read the
  * vector out of the response.
  */
 abstract class BaseEmbeddingClient implements EmbeddingClient {
   protected readonly config: EmbeddingClientConfig;
   private readonly prefixes: Record<EmbeddingKind, string>;
   private readonly dispatcher: Dispatcher | undefined;
+  private announcedTruncation = false;
 
   constructor(config: EmbeddingClientConfig) {
     this.config = config;
@@ -75,15 +76,30 @@ abstract class BaseEmbeddingClient implements EmbeddingClient {
     );
   }
 
+  /**
+   * A longer vector is cut to its first `dimensions` values: Matryoshka models
+   * (EmbeddingGemma, OpenAI text-embedding-3, …) are trained so that a prefix
+   * is itself an embedding. Not renormalized — every vector table compares by
+   * cosine distance, which ignores length. A shorter vector cannot be fixed.
+   */
   private checkWidth(embedding: number[]): number[] {
     const expected = this.config.dimensions;
-    if (expected !== undefined && embedding.length !== expected) {
-      throw new EmbeddingError(
-        `The embedding model returned ${embedding.length} dimensions, but ` +
-          `embedding_dimensions is ${expected}. Set embedding_dimensions to ${embedding.length}.`,
-      );
+    if (expected === undefined || embedding.length === expected) return embedding;
+    if (embedding.length > expected) {
+      if (!this.announcedTruncation) {
+        console.log(
+          `[embedding] shortening ${embedding.length}-dimension vectors to ${expected} ` +
+            '(Matryoshka); this only works for models trained for it',
+        );
+        this.announcedTruncation = true;
+      }
+      return embedding.slice(0, expected);
     }
-    return embedding;
+    throw new EmbeddingError(
+      `The embedding model returned ${embedding.length} dimensions, but ` +
+        `embedding_dimensions is ${expected}. Set embedding_dimensions to ` +
+        `${embedding.length} or less.`,
+    );
   }
 
   protected abstract request(input: string): Promise<number[]>;
