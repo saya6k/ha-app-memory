@@ -35,3 +35,18 @@ export const EMBEDDING_DOCUMENT_PREFIX = process.env.EMBEDDING_DOCUMENT_PREFIX ?
 
 /** EmbeddingGemma 2 native output size (SPEC §8 Ask First to change). */
 export const EMBEDDING_DIMENSIONS = Number(process.env.EMBEDDING_DIMENSIONS ?? 768);
+
+/**
+ * Appliance manuals: PDFs the user drops into this directory (the add-on maps
+ * /share read-only and points this at /share/manuals). Only ever read.
+ */
+export const MANUALS_DIR = process.env.MANUALS_DIR ?? './data/manuals';
+
+/** Ingress panel. Kept off MCP_PORT so the UI can be restricted on its own. */
+export const UI_PORT = Number(process.env.UI_PORT ?? 8100);
+
+/**
+ * When set, the UI only answers this remote address — the add-on sets the
+ * Supervisor's ingress proxy (172.30.32.2). Unset accepts anyone, for local runs.
+ */
+export const UI_ALLOWED_ADDRESS = process.env.UI_ALLOWED_ADDRESS;

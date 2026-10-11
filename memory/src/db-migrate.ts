@@ -50,6 +50,9 @@ try {
     console.log(
       `[db-migrate] migrated ${result.factCount} facts — ${result.reason ?? 'reason unknown'}`,
     );
+    if (result.manualCount > 0) {
+      console.log(`[db-migrate] ${result.manualCount} manuals will be re-indexed in the background`);
+    }
   }
 } catch (error) {
   console.error(`[db-migrate] ${error instanceof Error ? error.message : String(error)}`);

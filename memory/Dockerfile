@@ -18,7 +18,10 @@ COPY package.json package-lock.json ./
 RUN npm ci
 COPY tsconfig.json ./
 COPY src ./src
-RUN npm run build && npm prune --omit=dev
+# @napi-rs/canvas is pdfjs-dist's optional canvas backend (~30 MB). The server
+# only extracts text, and the panel renders in the browser, so drop it.
+RUN npm run build && npm prune --omit=dev \
+ && rm -rf node_modules/@napi-rs
 
 # ---- Runtime --------------------------------------------------------------
 FROM ${BUILD_FROM}
@@ -67,6 +70,8 @@ COPY --from=node-build /usr/local/bin/node /usr/local/bin/node
 COPY --from=node-build /app/dist /opt/mcp-server/dist
 COPY --from=node-build /app/node_modules /opt/mcp-server/node_modules
 COPY --from=node-build /app/package.json /opt/mcp-server/package.json
+# Manuals panel: static files, served as-is.
+COPY ui /opt/mcp-server/ui
 
 RUN node --version
 

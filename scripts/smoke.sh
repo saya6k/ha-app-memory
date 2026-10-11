@@ -1,7 +1,7 @@
 #!/bin/sh
 # ==============================================================================
 # Full-container verification: boots the add-on image under s6 and exercises
-# all six MCP tools against the real local embedding sidecar.
+# all eight MCP tools against the real local embedding sidecar.
 #
 #   sh scripts/smoke.sh [image-tag]
 #
@@ -57,6 +57,7 @@ docker rm -f memtest >/dev/null 2>&1 || true
 # shellcheck disable=SC2086
 docker run -d --name memtest ${DOCKER_NET} \
     -v "${DATA}:/data" \
+    -v "${ADDON}/test/fixtures:/share/manuals:ro" \
     -v "${SCRIPT_DIR}:/smoke:ro" \
     "${IMAGE}"
 
@@ -107,6 +108,15 @@ if docker exec memtest curl -sf --max-time 2 http://127.0.0.1:8080/health >/dev/
     exit 1
 fi
 echo "OK: nothing on TCP 8080"
+echo "-- manuals panel must refuse anyone but the ingress proxy --"
+code="$(docker exec memtest curl -s -o /dev/null -w "%{http_code}" --max-time 2 \
+    http://127.0.0.1:8100/ || true)"
+if [ "${code}" != "403" ]; then
+    echo "!! FAIL: the panel answered a non-ingress client with HTTP ${code}"
+    docker rm -f memtest >/dev/null 2>&1 || true
+    exit 1
+fi
+echo "OK: panel answers 403 outside ingress"
 
 echo
 echo "########## 6. MCP end-to-end ##########"

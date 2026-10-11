@@ -12,6 +12,7 @@ import { type DbConnection, openDb } from '../../src/db/client.js';
 import type { EmbeddingClient } from '../../src/embedding/types.js';
 import { registerDeleteTool } from '../../src/tools/delete.js';
 import { registerGetTool } from '../../src/tools/get.js';
+import { registerListManualsTool, registerSearchManualsTool } from '../../src/tools/manuals.js';
 import { registerSaveTool } from '../../src/tools/save.js';
 import { registerSearchTool } from '../../src/tools/search.js';
 import { registerSimilarTool } from '../../src/tools/similar.js';
@@ -53,6 +54,8 @@ beforeEach(async () => {
   registerUpdateTool(server, db, embedding);
   registerSimilarTool(server, db);
   registerDeleteTool(server, db);
+  registerSearchManualsTool(server, db, embedding);
+  registerListManualsTool(server, db);
 
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   client = new Client({ name: 'test-client', version: '0.0.0' });
@@ -65,9 +68,18 @@ afterEach(() => {
 });
 
 describe('tool naming', () => {
-  it('exposes exactly the six documented tools', async () => {
+  it('exposes exactly the eight documented tools', async () => {
     const names = (await client.listTools()).tools.map((t) => t.name).sort();
-    expect(names).toEqual(['delete', 'get', 'save', 'search', 'similar', 'update']);
+    expect(names).toEqual([
+      'delete',
+      'get',
+      'list_manuals',
+      'save',
+      'search',
+      'search_manuals',
+      'similar',
+      'update',
+    ]);
   });
 
   it('every tool name is accepted by OpenAI function-calling', async () => {

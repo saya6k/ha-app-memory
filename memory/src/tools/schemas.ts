@@ -35,3 +35,8 @@ export const similarFactsSchema = {
 export const deleteFactSchema = {
   id: z.string().min(1),
 };
+
+export const searchManualsSchema = {
+  query: z.string().min(1),
+  limit: z.number().int().min(1).optional(),
+};

@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Manuals</title>
+    <!-- Relative URLs throughout: ingress serves this page under a per-session prefix. -->
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="style.css" />
+    <script type="module" src="app.js"></script>
+  </head>
+  <body>
+    <div class="layout" data-view="list">
+      <aside class="sidebar">
+        <header class="bar">
+          <h1 data-i18n="title">Manuals</h1>
+          <button type="button" class="icon-button" id="rescan" data-i18n-label="rescan">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"
+              />
+            </svg>
+          </button>
+          <button
+            type="button"
+            class="icon-button"
+            id="menu-button"
+            popovertarget="menu"
+            aria-haspopup="menu"
+            aria-expanded="false"
+            data-i18n-label="more"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M12 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm0 6a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"
+              />
+            </svg>
+          </button>
+          <div class="menu" id="menu" popover role="menu">
+            <button type="button" role="menuitem" id="menu-reindex" data-i18n="reindex">
+              Reindex everything
+            </button>
+            <button type="button" role="menuitem" id="menu-reset" data-i18n="reset">
+              Clear the index
+            </button>
+          </div>
+        </header>
+
+        <form class="search" id="search-form" role="search">
+          <input
+            type="search"
+            id="search"
+            autocomplete="off"
+            data-i18n-placeholder="searchPlaceholder"
+            data-i18n-label="search"
+          />
+        </form>
+
+        <p class="status" id="status" role="status" aria-live="polite"></p>
+
+        <section id="results" hidden>
+          <h2 class="section-title" data-i18n="results">Results</h2>
+          <ul class="list" id="result-list"></ul>
+        </section>
+
+        <section id="manuals">
+          <h2 class="section-title" data-i18n="allManuals">All manuals</h2>
+          <ul class="list" id="manual-list"></ul>
+          <div class="empty" id="empty" hidden>
+            <p data-i18n="emptyTitle">No manuals yet</p>
+            <p class="muted" data-i18n="emptyBody">
+              Copy PDF manuals into the share folder's manuals directory, then rescan.
+            </p>
+            <code>/share/manuals/</code>
+          </div>
+        </section>
+      </aside>
+
+      <main class="viewer" id="viewer">
+        <header class="bar viewer-bar">
+          <button type="button" class="icon-button back" id="back" data-i18n-label="back">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
+            </svg>
+          </button>
+          <h2 class="viewer-title" id="viewer-title"></h2>
+          <nav class="pager" id="pager" hidden>
+            <button type="button" class="icon-button" id="prev" data-i18n-label="previous">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
+              </svg>
+            </button>
+            <label class="page-field">
+              <input type="number" id="page" min="1" inputmode="numeric" data-i18n-label="page" />
+              <span id="page-count"></span>
+            </label>
+            <button type="button" class="icon-button" id="next" data-i18n-label="next">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" />
+              </svg>
+            </button>
+            <a
+              class="icon-button"
+              id="open-original"
+              target="_blank"
+              rel="noopener"
+              data-i18n-label="openOriginal"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M19 19H5V5h7V3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"
+                />
+              </svg>
+            </a>
+          </nav>
+        </header>
+        <div class="canvas-wrap" id="canvas-wrap">
+          <p class="placeholder muted" id="placeholder" data-i18n="pickManual">
+            Pick a manual to read it here.
+          </p>
+          <canvas id="canvas" hidden></canvas>
+          <article class="markdown" id="markdown" hidden></article>
+        </div>
+      </main>
+    </div>
+
+    <dialog class="confirm" id="confirm" aria-labelledby="confirm-title">
+      <form method="dialog">
+        <h2 id="confirm-title"></h2>
+        <p id="confirm-body"></p>
+        <div class="confirm-actions">
+          <button type="submit" value="cancel" class="text-button" data-i18n="cancel">
+            Cancel
+          </button>
+          <button type="submit" value="ok" class="text-button" id="confirm-ok"></button>
+        </div>
+      </form>
+    </dialog>
+  </body>
+</html>
