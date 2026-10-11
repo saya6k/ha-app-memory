@@ -34,6 +34,10 @@ export UI_PORT=8100
 export UI_ALLOWED_ADDRESS=172.30.32.2
 export_embedding_env
 
+# Create the folders up front so /share/manuals is there to copy files into
+# (Samba, File editor) before anything has been uploaded.
+mkdir -p "${MANUALS_DIR}" "${USERS_DIR}"
+
 # log_level is optional; leave the variable unset so the app applies its own
 # default rather than parsing an empty string.
 log_level="$(option log_level)"
