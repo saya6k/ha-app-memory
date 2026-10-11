@@ -50,3 +50,18 @@ export const UI_PORT = Number(process.env.UI_PORT ?? 8100);
  * Supervisor's ingress proxy (172.30.32.2). Unset accepts anyone, for local runs.
  */
 export const UI_ALLOWED_ADDRESS = process.env.UI_ALLOWED_ADDRESS;
+
+/**
+ * Per-user data: <USERS_DIR>/<HA user id>/documents holds that person's
+ * personal documents, uploaded through the panel. Inside /data in the add-on,
+ * so it is private to the add-on and backed up with it.
+ */
+export const USERS_DIR = process.env.USERS_DIR ?? './data/users';
+
+/**
+ * Home Assistant's REST API through the Supervisor proxy, used to look up the
+ * household's people. SUPERVISOR_TOKEN is provided by the Supervisor; without
+ * it (running outside Home Assistant) nobody is known and everything is shared.
+ */
+export const HA_API_URL = process.env.HA_API_URL ?? 'http://supervisor/core/api';
+export const SUPERVISOR_TOKEN = process.env.SUPERVISOR_TOKEN;

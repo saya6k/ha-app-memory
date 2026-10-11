@@ -23,15 +23,13 @@ interface StoredState {
 
 function readMeta(db: DbConnection, key: string): string | undefined {
   const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(key) as
-    | { value: string }
-    | undefined;
+    { value: string } | undefined;
   return row?.value;
 }
 
 function readState(db: DbConnection): StoredState {
   const ddl = db.prepare("SELECT sql FROM sqlite_master WHERE name = 'vec_facts'").get() as
-    | { sql: string }
-    | undefined;
+    { sql: string } | undefined;
   const width = ddl?.sql.match(/FLOAT\[(\d+)\]/)?.[1];
 
   return {

@@ -1,8 +1,11 @@
 import { EMBEDDING_DIMENSIONS } from '../config.js';
 
 export const SCHEMA_SQL = `
+-- owner: '' for a fact shared by the household, else the HA user id of the
+-- person it belongs to. '' rather than NULL so it compares like any value.
 CREATE TABLE IF NOT EXISTS facts (
   id          TEXT PRIMARY KEY,
+  owner       TEXT NOT NULL DEFAULT '',
   content     TEXT NOT NULL,
   tags        TEXT NOT NULL DEFAULT '[]',
   created_at  TEXT NOT NULL,
@@ -22,23 +25,37 @@ CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+`;
 
--- Appliance manuals (PDF and Markdown). Unlike facts, the files under
--- MANUALS_DIR are the source of truth and this is only an index of them, which
--- may be dropped and rebuilt at any time. A manual is its content: sha256 is
--- unique, so a renamed or moved file keeps its vectors and an identical copy is
--- not indexed twice. size + mtime only decide whether a file needs re-hashing.
+/**
+ * The document index, kept apart from SCHEMA_SQL because it is versioned: a
+ * database whose index has an older shape has it dropped and recreated (see
+ * client.ts), which costs nothing but a background re-index of the files.
+ */
+export const MANUAL_INDEX_VERSION = '2';
+
+export const MANUAL_SCHEMA_SQL = `
+-- Indexed documents: the shared appliance manuals (owner '') and each user's
+-- personal documents (owner = HA user id), PDF or Markdown. Unlike facts, the
+-- files are the source of truth and this is only an index of them, which may be
+-- dropped and rebuilt at any time. Within an owner a document is its content:
+-- (owner, sha256) is unique, so a renamed or moved file keeps its vectors and an
+-- identical copy is not indexed twice. size + mtime only decide whether a file
+-- needs re-hashing. path is relative to the owner's folder.
 CREATE TABLE IF NOT EXISTS manuals (
   id          TEXT PRIMARY KEY,
-  path        TEXT NOT NULL UNIQUE,
+  owner       TEXT NOT NULL DEFAULT '',
+  path        TEXT NOT NULL,
   title       TEXT NOT NULL,
   format      TEXT NOT NULL,
-  sha256      TEXT NOT NULL UNIQUE,
+  sha256      TEXT NOT NULL,
   size        INTEGER NOT NULL,
   mtime_ms    INTEGER NOT NULL,
   page_count  INTEGER NOT NULL,
   chunk_count INTEGER NOT NULL,
-  indexed_at  TEXT NOT NULL
+  indexed_at  TEXT NOT NULL,
+  UNIQUE (owner, path),
+  UNIQUE (owner, sha256)
 );
 
 -- page: the PDF page, or for Markdown the section — the number of top-level
@@ -59,6 +76,8 @@ CREATE VIRTUAL TABLE IF NOT EXISTS vec_manual_chunks USING vec0(
   embedding FLOAT[${EMBEDDING_DIMENSIONS}] distance_metric=cosine
 );
 `;
+
+export const META_MANUAL_INDEX_VERSION = 'manual_index_version';
 
 export const META_EMBEDDING_MODEL = 'embedding_model';
 /**

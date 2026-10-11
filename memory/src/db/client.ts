@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import * as sqliteVec from 'sqlite-vec';
 
 import { EMBEDDING_DIMENSIONS, EMBEDDING_DOCUMENT_PREFIX, EMBEDDING_MODEL } from '../config.js';
+import { ensureManualIndex } from './manuals.js';
 import { META_DOCUMENT_PREFIX, META_EMBEDDING_MODEL, SCHEMA_SQL } from './schema.js';
 
 export type DbConnection = Database.Database;
@@ -95,6 +96,18 @@ function assertDocumentPrefixMatches(db: DbConnection): void {
   );
 }
 
+/**
+ * Facts gained an owner when memories became per-user. A database from before
+ * that has the column added with its default, '', so every existing fact
+ * becomes shared — which is what they were.
+ */
+function addFactOwner(db: DbConnection): void {
+  const columns = db.prepare('PRAGMA table_info(facts)').all() as { name: string }[];
+  if (!columns.some((c) => c.name === 'owner')) {
+    db.exec("ALTER TABLE facts ADD COLUMN owner TEXT NOT NULL DEFAULT ''");
+  }
+}
+
 export interface OpenDbOptions {
   /**
    * Skip the compatibility guards. Only the migration may do this — it is the
@@ -108,6 +121,8 @@ export function openDb(path: string, options: OpenDbOptions = {}): DbConnection 
   sqliteVec.load(db);
   db.pragma('journal_mode = WAL');
   db.exec(SCHEMA_SQL);
+  addFactOwner(db);
+  ensureManualIndex(db);
 
   if (options.unchecked) {
     return db;

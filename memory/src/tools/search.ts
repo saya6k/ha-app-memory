@@ -1,63 +1,69 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import type { DbConnection } from '../db/client.js';
-import { getFactsByIds } from '../db/facts.js';
-import { knnSearch } from '../db/vector.js';
 import type { EmbeddingClient } from '../embedding/types.js';
 import { logError, logToolCall } from '../log.js';
+import { searchAll } from '../search.js';
+import type { UserDirectory } from '../users.js';
 import { DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT, searchFactsSchema } from './schemas.js';
+import { scopeFor } from './scope.js';
 
 /**
- * sqlite-vec KNN doesn't compose safely with an arbitrary WHERE pre-filter,
- * so we over-fetch candidates and filter by tags in the application layer
- * (tags ANY-match) before truncating to the requested limit. Fine at
- * personal scale (hundreds-thousands of facts) — see tasks/plan.md Open
- * Questions for the large-scale caveat.
+ * The one lookup tool: remembered facts, the shared appliance manuals and the
+ * user's personal documents, ranked together (see searchAll).
  */
-const CANDIDATE_FLOOR = 50;
-const CANDIDATE_MULTIPLIER = 10;
-
 export function registerSearchTool(
   server: McpServer,
   db: DbConnection,
   embeddingClient: EmbeddingClient,
+  users: UserDirectory,
 ): void {
   server.registerTool(
     'search',
     {
       description:
-        'Search saved facts by meaning rather than keywords, optionally filtered by ' +
-        'tags. Phrase `query` as the information you are looking for; it may be in ' +
-        'any language, since matching works across languages.',
+        "Look things up in the household's knowledge: what has been remembered, the " +
+        "appliance and device manuals, and the user's own documents. Use it first " +
+        'whenever the user asks you to find, check or recall something, asks what ' +
+        'they told you, or asks how to operate, clean or fix a device or what an ' +
+        'error code means. Matching is by meaning and works across languages, so ' +
+        'phrase `query` as the information wanted. Pass `user`. Each result has a ' +
+        '`type`: "memory" (a remembered fact; `personal` says whose), "manual" or ' +
+        '"document" (a passage, with its `page` or `section` to cite).',
       inputSchema: searchFactsSchema,
     },
-    async ({ query, filter, limit }) => {
+    async ({ query, user, filter, limit }) => {
       const resolvedLimit = Math.min(limit ?? DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT);
       logToolCall('search', {
         queryLength: query.length,
         limit: resolvedLimit,
         tagFilterCount: filter?.tags?.length,
+        user: user !== undefined,
       });
 
       try {
-        const embedding = await embeddingClient.embed(query, 'query');
-        const candidateK = Math.max(resolvedLimit * CANDIDATE_MULTIPLIER, CANDIDATE_FLOOR);
-        const matches = knnSearch(db, embedding, candidateK);
-
-        const factsById = new Map(getFactsByIds(db, matches.map((m) => m.id)).map((f) => [f.id, f]));
-        const filterTags = filter?.tags;
-
-        const results = matches
-          .flatMap((match) => {
-            const fact = factsById.get(match.id);
-            if (!fact) return [];
-            if (filterTags && filterTags.length > 0 && !filterTags.some((t) => fact.tags.includes(t))) {
-              return [];
-            }
-            return [{ ...fact, distance: match.distance }];
-          })
-          .slice(0, resolvedLimit);
-
+        const scope = await scopeFor(users, user);
+        const hits = await searchAll(db, embeddingClient, {
+          query,
+          limit: resolvedLimit,
+          owners: scope.owners,
+          tags: filter?.tags,
+        });
+        // The panel needs a passage's manual id and format; the model does not,
+        // and an id there could be mistaken for a fact id to pass to get.
+        const results = hits.map((hit) =>
+          hit.type === 'memory'
+            ? hit
+            : {
+                type: hit.type,
+                title: hit.title,
+                file: hit.file,
+                page: hit.page,
+                section: hit.section,
+                content: hit.content,
+                distance: hit.distance,
+              },
+        );
         return { content: [{ type: 'text', text: JSON.stringify(results) }] };
       } catch (error) {
         logError('search', error);

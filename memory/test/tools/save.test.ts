@@ -11,6 +11,7 @@ import { EMBEDDING_DIMENSIONS } from '../../src/config.js';
 import { type DbConnection, openDb } from '../../src/db/client.js';
 import type { EmbeddingClient } from '../../src/embedding/types.js';
 import { registerSaveTool } from '../../src/tools/save.js';
+import { NO_USERS } from '../../src/users.js';
 
 let dir: string;
 let db: DbConnection;
@@ -37,7 +38,7 @@ beforeEach(async () => {
   embedShouldFail = false;
 
   const server = new McpServer({ name: 'test', version: '0.0.0' });
-  registerSaveTool(server, db, fakeEmbeddingClient());
+  registerSaveTool(server, db, fakeEmbeddingClient(), NO_USERS);
 
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   client = new Client({ name: 'test-client', version: '0.0.0' });

@@ -14,6 +14,7 @@ import { registerDeleteTool } from '../../src/tools/delete.js';
 import { registerGetTool } from '../../src/tools/get.js';
 import { registerSaveTool } from '../../src/tools/save.js';
 import { registerSearchTool } from '../../src/tools/search.js';
+import { NO_USERS } from '../../src/users.js';
 
 let dir: string;
 let db: DbConnection;
@@ -33,10 +34,10 @@ beforeEach(async () => {
 
   const server = new McpServer({ name: 'test', version: '0.0.0' });
   const embeddingClient = fakeEmbeddingClient();
-  registerSaveTool(server, db, embeddingClient);
-  registerGetTool(server, db);
-  registerSearchTool(server, db, embeddingClient);
-  registerDeleteTool(server, db);
+  registerSaveTool(server, db, embeddingClient, NO_USERS);
+  registerGetTool(server, db, NO_USERS);
+  registerSearchTool(server, db, embeddingClient, NO_USERS);
+  registerDeleteTool(server, db, NO_USERS);
 
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   client = new Client({ name: 'test-client', version: '0.0.0' });

@@ -42,7 +42,7 @@ check('server name is "Memory"', info.serverInfo?.name === 'Memory', String(info
 console.log('\n=== 1. tools/list ===');
 const tools = (await rpc('tools/list', {})).tools.map((t) => t.name).sort();
 console.log('  ', tools.join(', '));
-check('8 tools exposed', tools.length === 8, `got ${tools.length}`);
+check('6 tools exposed', tools.length === 6, `got ${tools.length}`);
 
 console.log('\n=== 2. save (실제 로컬 임베딩) ===');
 const saved = content(
@@ -90,44 +90,36 @@ check(
   JSON.stringify(after).slice(0, 160),
 );
 
-console.log('\n=== 7. manuals (smoke.sh mounts test/fixtures as /share/manuals) ===');
-// Indexing runs in the background after startup; give it a moment.
-let manuals = [];
-for (let i = 0; i < 60 && manuals.length < 2; i++) {
-  manuals = content(await rpc('tools/call', { name: 'list_manuals', arguments: {} }));
-  if (manuals.length < 2) await new Promise((r) => setTimeout(r, 1000));
-}
-console.log('  ', JSON.stringify(manuals));
+console.log('\n=== 7. manuals in the one search (smoke.sh mounts test/fixtures as /share/manuals) ===');
+// Indexing runs in the background after startup, one file at a time, so wait
+// until the manual being asked about is in the results — the other fixture may
+// be indexed, and found, first.
+const findManual = async (query, title) => {
+  let hits = [];
+  for (let i = 0; i < 60; i++) {
+    hits = content(
+      await rpc('tools/call', { name: 'search', arguments: { query, limit: 5 } }),
+    ).filter((h) => h.type === 'manual');
+    if (hits.some((h) => h.title === title)) return hits;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  return hits;
+};
+
+const pdfHits = await findManual('What does error E3 mean on the washer?', 'washer-ko');
+console.log('  ', JSON.stringify(pdfHits).slice(0, 300));
 check(
-  'PDF and Markdown fixtures indexed',
-  manuals.map((m) => `${m.manual}:${m.format}:${m.searchable}`).join() ===
-    'dryer-ko:markdown:true,washer-ko:pdf:true',
+  'cross-lingual PDF manual hit lands on the right page',
+  pdfHits[0]?.title === 'washer-ko' && pdfHits[0]?.page === 2 && pdfHits[0]?.content.includes('배수 필터'),
+  pdfHits[0] ? `${pdfHits[0].title} p.${pdfHits[0].page}` : 'no results',
 );
 
-const hits = content(
-  await rpc('tools/call', {
-    name: 'search_manuals',
-    arguments: { query: 'What does error E3 mean on the washer?', limit: 2 },
-  }),
-);
-console.log('  ', JSON.stringify(hits).slice(0, 300));
-check(
-  'cross-lingual manual hit lands on the right page',
-  hits[0]?.page === 2 && hits[0]?.content.includes('배수 필터'),
-  hits[0] ? `page ${hits[0].page}` : 'no results',
-);
-
-const mdHits = content(
-  await rpc('tools/call', {
-    name: 'search_manuals',
-    arguments: { query: 'How do I empty the water tank on the dryer?', limit: 2 },
-  }),
-);
+const mdHits = await findManual('How do I empty the water tank on the dryer?', 'dryer-ko');
 console.log('  ', JSON.stringify(mdHits).slice(0, 300));
 check(
-  'cross-lingual Markdown hit lands on the right section',
-  mdHits[0]?.manual === 'dryer-ko' && mdHits[0]?.section === '물통 비우기',
-  mdHits[0] ? `${mdHits[0].manual} / ${mdHits[0].section}` : 'no results',
+  'cross-lingual Markdown manual hit lands on the right section',
+  mdHits[0]?.title === 'dryer-ko' && mdHits[0]?.section === '물통 비우기',
+  mdHits[0] ? `${mdHits[0].title} / ${mdHits[0].section}` : 'no results',
 );
 
 console.log(`\n===== ${failures === 0 ? '전부 통과' : failures + '건 실패'} =====`);

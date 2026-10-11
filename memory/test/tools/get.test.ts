@@ -12,6 +12,7 @@ import { type DbConnection, openDb } from '../../src/db/client.js';
 import type { EmbeddingClient } from '../../src/embedding/types.js';
 import { registerGetTool } from '../../src/tools/get.js';
 import { registerSaveTool } from '../../src/tools/save.js';
+import { NO_USERS } from '../../src/users.js';
 
 let dir: string;
 let db: DbConnection;
@@ -30,8 +31,8 @@ beforeEach(async () => {
   db = openDb(join(dir, 'facts.sqlite'));
 
   const server = new McpServer({ name: 'test', version: '0.0.0' });
-  registerSaveTool(server, db, fakeEmbeddingClient());
-  registerGetTool(server, db);
+  registerSaveTool(server, db, fakeEmbeddingClient(), NO_USERS);
+  registerGetTool(server, db, NO_USERS);
 
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   client = new Client({ name: 'test-client', version: '0.0.0' });

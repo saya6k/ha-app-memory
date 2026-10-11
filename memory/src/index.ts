@@ -12,10 +12,13 @@ import {
   EMBEDDING_MODEL,
   EMBEDDING_QUERY_PREFIX,
   EMBEDDING_SOCKET_PATH,
+  HA_API_URL,
   MANUALS_DIR,
   MCP_PORT,
   UI_ALLOWED_ADDRESS,
   UI_PORT,
+  SUPERVISOR_TOKEN,
+  USERS_DIR,
 } from './config.js';
 import { openDb } from './db/client.js';
 import { HttpEmbeddingClient } from './embedding/client.js';
@@ -23,12 +26,12 @@ import { logError } from './log.js';
 import { ManualIndexer } from './manuals/indexer.js';
 import { registerDeleteTool } from './tools/delete.js';
 import { registerGetTool } from './tools/get.js';
-import { registerListManualsTool, registerSearchManualsTool } from './tools/manuals.js';
 import { registerSaveTool } from './tools/save.js';
 import { registerSearchTool } from './tools/search.js';
 import { registerSimilarTool } from './tools/similar.js';
 import { registerUpdateTool } from './tools/update.js';
 import { createUiServer } from './ui/server.js';
+import { HomeAssistantUsers, NO_USERS } from './users.js';
 
 mkdirSync(dirname(DB_PATH), { recursive: true });
 const db = openDb(DB_PATH);
@@ -40,7 +43,8 @@ const embeddingClient = new HttpEmbeddingClient({
   queryPrefix: EMBEDDING_QUERY_PREFIX,
   documentPrefix: EMBEDDING_DOCUMENT_PREFIX,
 });
-const indexer = new ManualIndexer(db, embeddingClient, MANUALS_DIR);
+const indexer = new ManualIndexer(db, embeddingClient, MANUALS_DIR, undefined, USERS_DIR);
+const users = SUPERVISOR_TOKEN ? new HomeAssistantUsers(HA_API_URL, SUPERVISOR_TOKEN) : NO_USERS;
 
 function createMcpServer(): McpServer {
   const server = new McpServer({
@@ -51,14 +55,12 @@ function createMcpServer(): McpServer {
     version: '0.1.0',
   });
 
-  registerSaveTool(server, db, embeddingClient);
-  registerGetTool(server, db);
-  registerSearchTool(server, db, embeddingClient);
-  registerUpdateTool(server, db, embeddingClient);
-  registerSimilarTool(server, db);
-  registerDeleteTool(server, db);
-  registerSearchManualsTool(server, db, embeddingClient);
-  registerListManualsTool(server, db);
+  registerSearchTool(server, db, embeddingClient, users);
+  registerSaveTool(server, db, embeddingClient, users);
+  registerGetTool(server, db, users);
+  registerUpdateTool(server, db, embeddingClient, users);
+  registerSimilarTool(server, db, users);
+  registerDeleteTool(server, db, users);
 
   return server;
 }
@@ -98,6 +100,7 @@ const uiServer = createUiServer({
   embeddingClient,
   indexer,
   manualsDir: MANUALS_DIR,
+  usersDir: USERS_DIR,
   allowedAddress: UI_ALLOWED_ADDRESS,
 });
 
@@ -111,7 +114,9 @@ void indexer
   .sync()
   .then((result) => {
     if (!result.dirFound) {
-      console.log(`[manuals] ${MANUALS_DIR} not found — put PDF manuals there to make them searchable`);
+      console.log(
+        `[manuals] ${MANUALS_DIR} not found — put PDF manuals there to make them searchable`,
+      );
       return;
     }
     console.log(

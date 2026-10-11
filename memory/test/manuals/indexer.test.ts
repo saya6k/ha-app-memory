@@ -177,7 +177,9 @@ describe('ManualIndexer', () => {
     const result = await indexer().sync();
 
     expect(result.added).toBe(1);
-    expect(result.duplicates).toEqual([{ path: 'b/Washer copy.pdf', of: 'a/Washer.pdf' }]);
+    expect(result.duplicates).toEqual([
+      { owner: '', path: 'b/Washer copy.pdf', of: 'a/Washer.pdf' },
+    ]);
     expect(paths()).toEqual(['a/Washer.pdf']);
     expect(embedded).toHaveLength(1);
   });
@@ -206,7 +208,7 @@ describe('ManualIndexer', () => {
     writeManual('Washer.pdf', ['oven'], new Date('2026-02-01'));
     const result = await idx.sync();
 
-    expect(result.duplicates).toEqual([{ path: 'Washer.pdf', of: 'Oven.pdf' }]);
+    expect(result.duplicates).toEqual([{ owner: '', path: 'Washer.pdf', of: 'Oven.pdf' }]);
     expect(paths()).toEqual(['Oven.pdf']);
     expect(chunkCount()).toBe(1);
   });
@@ -260,7 +262,9 @@ describe('ManualIndexer', () => {
     const result = await idx.sync();
 
     expect(result.added).toBe(1);
-    expect(result.failed).toEqual([{ path: 'Bad.pdf', error: expect.stringMatching(/not a pdf/) }]);
+    expect(result.failed).toEqual([
+      { owner: '', path: 'Bad.pdf', error: expect.stringMatching(/not a pdf/) },
+    ]);
     expect(listManuals(db).map((m) => m.title)).toEqual(['Bad', 'Good', 'New']);
     expect(chunkCount()).toBe(3);
     expect(idx.status.lastSync?.failed).toHaveLength(1);
@@ -318,5 +322,108 @@ describe('ManualIndexer', () => {
     await reset;
     expect(listManuals(db)).toHaveLength(0);
     expect(idx.status.running).toBe(false);
+  });
+
+  it('queues a fresh sync when one is asked for while another is running', async () => {
+    writeManual('Washer.pdf', ['one']);
+    // Hold the first sync inside extraction, after it has scanned the folder.
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let entered!: () => void;
+    const inside = new Promise<void>((resolve) => (entered = resolve));
+    const idx = new ManualIndexer(db, embedding, manualsDir, async (path, format) => {
+      entered();
+      await gate;
+      return extract(path, format);
+    });
+
+    const first = idx.sync();
+    await inside;
+    // Written after the first sync scanned the folder — an upload, say.
+    writeManual('Oven.pdf', ['two']);
+    const second = idx.sync();
+    expect(second).not.toBe(first);
+    expect(idx.sync()).toBe(second);
+
+    release();
+    expect((await first).added).toBe(1);
+    expect((await second).added).toBe(1);
+    expect(paths()).toEqual(['Oven.pdf', 'Washer.pdf']);
+  });
+
+  describe('personal documents', () => {
+    /** Writes into <dir>/users/<id>/documents, the way the panel's upload does. */
+    function writePersonal(userId: string, name: string, pages: string[]): void {
+      const path = join(dir, 'users', userId, 'documents', name);
+      mkdirSync(join(path, '..'), { recursive: true });
+      writeFileSync(path, pages.join('|'));
+      utimesSync(path, new Date('2026-01-01'), new Date('2026-01-01'));
+    }
+
+    // The fake extractor finds files relative to the shared folder; read any path.
+    async function extractAnywhere(path: string): Promise<ExtractedManual> {
+      const { readFileSync } = await import('node:fs');
+      const pages = readFileSync(path, 'utf8').split('|');
+      return { pageCount: pages.length, parts: pages.map((text, i) => ({ page: i + 1, text })) };
+    }
+
+    function withUsers(): ManualIndexer {
+      return new ManualIndexer(db, embedding, manualsDir, extractAnywhere, join(dir, 'users'));
+    }
+
+    function owners(): [string, string][] {
+      return listManuals(db)
+        .map((m): [string, string] => [m.owner, m.path])
+        .sort();
+    }
+
+    it("indexes each user's folder under their id, next to the shared manuals", async () => {
+      writeManual('Washer.pdf', ['shared']);
+      writePersonal('u-dad', 'Insurance.pdf', ['dad']);
+      writePersonal('u-mina', 'notes/School.md', ['mina']);
+
+      expect((await withUsers().sync()).added).toBe(3);
+      expect(owners()).toEqual([
+        ['', 'Washer.pdf'],
+        ['u-dad', 'Insurance.pdf'],
+        ['u-mina', 'notes/School.md'],
+      ]);
+    });
+
+    it('treats the same content as a duplicate only within one owner', async () => {
+      writeManual('Washer.pdf', ['same']);
+      writePersonal('u-dad', 'Washer.pdf', ['same']);
+      writePersonal('u-dad', 'Washer copy.pdf', ['same']);
+
+      const result = await withUsers().sync();
+
+      expect(result.added).toBe(2);
+      expect(result.duplicates).toEqual([
+        { owner: 'u-dad', path: 'Washer.pdf', of: 'Washer copy.pdf' },
+      ]);
+    });
+
+    it("drops a user's documents when their folder is gone, but keeps shared ones without a folder", async () => {
+      writeManual('Washer.pdf', ['shared']);
+      writePersonal('u-dad', 'Insurance.pdf', ['dad']);
+      const idx = withUsers();
+      await idx.sync();
+
+      rmSync(join(dir, 'users', 'u-dad'), { recursive: true });
+      rmSync(manualsDir, { recursive: true });
+      const result = await idx.sync();
+
+      expect(result).toMatchObject({ removed: 1, dirFound: false });
+      expect(owners()).toEqual([['', 'Washer.pdf']]);
+    });
+
+    it('ignores folders that cannot be user ids', async () => {
+      writePersonal('u-dad', 'a.pdf', ['a']);
+      mkdirSync(join(dir, 'users', '.trash', 'documents'), { recursive: true });
+      writeFileSync(join(dir, 'users', '.trash', 'documents', 'b.pdf'), 'b');
+
+      await withUsers().sync();
+      expect(owners()).toEqual([['u-dad', 'a.pdf']]);
+    });
   });
 });
