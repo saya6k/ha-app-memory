@@ -14,7 +14,7 @@ export interface EmbeddingClientConfig {
   queryPrefix?: string;
   /** Prepended to stored facts. Changing it changes every stored vector. */
   documentPrefix?: string;
-  /** The vector width the database expects; a model answering otherwise is an error. */
+  /** The vector width the database expects. Longer vectors are shortened to it; shorter ones are an error. */
   dimensions?: number;
   maxRetries?: number;
   retryDelayMs?: number;

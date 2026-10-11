@@ -109,10 +109,21 @@ describe('all providers', () => {
 
     await expect(client.embed('hello', 'document')).rejects.toThrow(
       'The embedding model returned 3 dimensions, but embedding_dimensions is 768. ' +
-        'Set embedding_dimensions to 3.',
+        'Set embedding_dimensions to 3 or less.',
     );
     // A wrong width is a setting, not a passing failure: no retries.
     expect(requests).toHaveLength(1);
+  });
+
+  it('shorten a longer vector to its first dimensions (Matryoshka)', async () => {
+    reply = () => ({ data: [{ embedding: [0.1, 0.2, 0.3, 0.4] }] });
+    const client = new HttpEmbeddingClient({
+      baseUrl: `${base}/v1`,
+      model: 'embeddinggemma',
+      dimensions: 2,
+    });
+
+    expect(await client.embed('hello', 'document')).toEqual([0.1, 0.2]);
   });
 
   it('pick the client by provider', () => {
