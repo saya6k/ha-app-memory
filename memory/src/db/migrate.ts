@@ -1,6 +1,7 @@
 import { EMBEDDING_DIMENSIONS, EMBEDDING_DOCUMENT_PREFIX, EMBEDDING_MODEL } from '../config.js';
 import type { EmbeddingClient } from '../embedding/types.js';
 import { openDb, type DbConnection } from './client.js';
+import { clearManualIndex } from './manuals.js';
 import { META_DOCUMENT_PREFIX, META_EMBEDDING_MODEL } from './schema.js';
 
 export type MigrationStatus = 'up-to-date' | 'migrated';
@@ -10,6 +11,8 @@ export interface MigrationResult {
   /** Why a migration was needed; absent when already up to date. */
   reason?: string;
   factCount: number;
+  /** Manuals whose index was dropped, for the server to rebuild from their files. */
+  manualCount: number;
 }
 
 interface StoredState {
@@ -39,7 +42,7 @@ function readState(db: DbConnection): StoredState {
 }
 
 /** Null when the database already matches the configured model and width. */
-function migrationReason(state: StoredState, factCount: number): string | undefined {
+function migrationReason(state: StoredState, vectorCount: number): string | undefined {
   if (state.dimensions !== undefined && state.dimensions !== EMBEDDING_DIMENSIONS) {
     return `vector width changed (${state.dimensions} -> ${EMBEDDING_DIMENSIONS})`;
   }
@@ -48,7 +51,7 @@ function migrationReason(state: StoredState, factCount: number): string | undefi
     // Written before `meta` existed, so the model that produced these vectors
     // is unknown. Re-embedding is the only way to be sure they are usable;
     // assuming the current model would risk a silently broken memory.
-    return factCount > 0 ? 'database predates model tracking' : undefined;
+    return vectorCount > 0 ? 'database predates model tracking' : undefined;
   }
 
   if (state.model !== EMBEDDING_MODEL) {
@@ -82,10 +85,15 @@ export async function migrate(
       id: string;
       content: string;
     }[];
-    const reason = migrationReason(readState(db), facts.length);
+    const { chunks, manuals } = db
+      .prepare(
+        'SELECT (SELECT count(*) FROM manual_chunks) AS chunks, (SELECT count(*) FROM manuals) AS manuals',
+      )
+      .get() as { chunks: number; manuals: number };
+    const reason = migrationReason(readState(db), facts.length + chunks);
 
     if (reason === undefined) {
-      return { status: 'up-to-date', factCount: facts.length };
+      return { status: 'up-to-date', factCount: facts.length, manualCount: 0 };
     }
 
     const vectors: { id: string; embedding: Float32Array }[] = [];
@@ -113,12 +121,17 @@ export async function migrate(
         insert.run(vector.id, vector.embedding);
       }
 
+      // Manual chunks are not re-embedded here: their files are still on disk,
+      // so emptying the index makes the server re-read them in the background
+      // instead of holding up startup for what may be thousands of chunks.
+      clearManualIndex(db);
+
       const setMeta = db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)');
       setMeta.run(META_EMBEDDING_MODEL, EMBEDDING_MODEL);
       setMeta.run(META_DOCUMENT_PREFIX, EMBEDDING_DOCUMENT_PREFIX);
     })();
 
-    return { status: 'migrated', reason, factCount: facts.length };
+    return { status: 'migrated', reason, factCount: facts.length, manualCount: manuals };
   } finally {
     db.close();
   }

@@ -3,12 +3,17 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { describe, expect, it } from 'vitest';
 
-import { searchFactsSchema, similarFactsSchema } from '../../src/tools/schemas.js';
+import {
+  searchFactsSchema,
+  searchManualsSchema,
+  similarFactsSchema,
+} from '../../src/tools/schemas.js';
 
 describe('tool limit schemas', () => {
   it.each([
     ['search', searchFactsSchema],
     ['similar', similarFactsSchema],
+    ['search_manuals', searchManualsSchema],
   ] as const)(
     '%s exposes an inclusive minimum for HA schema conversion',
     async (name, inputSchema) => {
@@ -31,7 +36,7 @@ describe('tool limit schemas', () => {
     },
   );
 
-  it.each([searchFactsSchema, similarFactsSchema])(
+  it.each([searchFactsSchema, similarFactsSchema, searchManualsSchema])(
     'preserves positive integer validation',
     (schema) => {
       for (const value of [undefined, 1, 20, 999]) {

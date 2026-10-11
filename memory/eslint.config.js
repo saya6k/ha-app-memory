@@ -1,5 +1,6 @@
 // @ts-check
 import eslint from '@eslint/js';
+import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
@@ -20,5 +21,10 @@ export default tseslint.config(
       '@typescript-eslint/no-explicit-any': 'error',
       'no-console': 'off',
     },
+  },
+  {
+    // The ingress panel: plain browser JavaScript, served as-is.
+    files: ['ui/**/*.js'],
+    languageOptions: { globals: globals.browser },
   },
 );

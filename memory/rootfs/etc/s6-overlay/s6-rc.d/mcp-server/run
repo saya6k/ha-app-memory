@@ -32,6 +32,10 @@ bashio::log.info "Embedding sidecar is ready."
 
 export DB_PATH=/data/facts.sqlite
 export MCP_PORT=8099
+export MANUALS_DIR=/share/manuals
+# The manuals panel answers only Supervisor's ingress proxy.
+export UI_PORT=8100
+export UI_ALLOWED_ADDRESS=172.30.32.2
 export EMBEDDING_BASE_URL=http://localhost
 export EMBEDDING_SOCKET_PATH="${SOCKET}"
 EMBEDDING_MODEL="$(option model_file)"
@@ -48,6 +52,6 @@ if [[ -n "${log_level}" ]]; then
     export LOG_LEVEL="${log_level}"
 fi
 
-bashio::log.info "Starting MCP server on 0.0.0.0:8099 (/mcp)"
+bashio::log.info "Starting MCP server on 0.0.0.0:8099 (/mcp) and the manuals panel on :8100"
 cd /opt/mcp-server
 exec node dist/index.js

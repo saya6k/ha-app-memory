@@ -255,4 +255,71 @@ describe('re-embedding migration', () => {
     expect(result.factCount).toBe(0);
     expect(client.calls).toBe(0);
   });
+
+  it('empties the manual index on a model change, leaving it to be rebuilt from the PDFs', async () => {
+    await seed({ model: 'model-a.gguf' }, ['one']);
+    const pre = await moduleFor({ model: 'model-a.gguf' });
+    const { replaceManual } = await import('../../src/db/manuals.js');
+    const seeded = pre.openDb(path);
+    replaceManual(
+      seeded,
+      {
+        id: 'm',
+        path: 'Washer.pdf',
+        title: 'Washer',
+        format: 'pdf',
+        sha256: 'x',
+        size: 1,
+        mtimeMs: 1,
+        pageCount: 1,
+        indexedAt: '',
+      },
+      [{ page: 1, content: 'text', embedding: new Array(1024).fill(0.1) as number[] }],
+    );
+    seeded.close();
+
+    const { migrate, openDb } = await moduleFor({ dims: 384, model: 'model-b.gguf' });
+    const client = fakeClient(0.5, 384);
+    const result = await migrate(path, client);
+
+    expect(result.manualCount).toBe(1);
+    expect(client.calls).toBe(1); // the fact only — chunks are not re-embedded here
+    const db = openDb(path);
+    expect(db.prepare('SELECT count(*) AS c FROM manuals').get()).toEqual({ c: 0 });
+    expect(db.prepare('SELECT count(*) AS c FROM manual_chunks').get()).toEqual({ c: 0 });
+    const ddl = db
+      .prepare("SELECT sql FROM sqlite_master WHERE name = 'vec_manual_chunks'")
+      .get() as { sql: string };
+    expect(ddl.sql).toContain('FLOAT[384]');
+    db.close();
+  });
+
+  it('re-indexes manuals on a database that predates model tracking even with no facts', async () => {
+    const pre = await moduleFor({ model: 'model-a.gguf' });
+    const { replaceManual } = await import('../../src/db/manuals.js');
+    const seeded = pre.openDb(path);
+    replaceManual(
+      seeded,
+      {
+        id: 'm',
+        path: 'Washer.pdf',
+        title: 'Washer',
+        format: 'pdf',
+        sha256: 'x',
+        size: 1,
+        mtimeMs: 1,
+        pageCount: 1,
+        indexedAt: '',
+      },
+      [{ page: 1, content: 'text', embedding: new Array(1024).fill(0.1) as number[] }],
+    );
+    seeded.exec('DELETE FROM meta');
+    seeded.close();
+
+    const { migrate } = await moduleFor({ model: 'model-a.gguf' });
+    const result = await migrate(path, fakeClient(0.5));
+
+    expect(result.status).toBe('migrated');
+    expect(result.manualCount).toBe(1);
+  });
 });
