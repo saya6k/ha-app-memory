@@ -3,6 +3,7 @@ import { stat } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { createRequire } from 'node:module';
 import { dirname, extname, join } from 'node:path';
+import { pipeline } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 
 import type { DbConnection } from '../db/client.js';
@@ -89,7 +90,12 @@ async function sendFile(res: ServerResponse, path: string, cache: boolean): Prom
     'content-length': info.size,
     'cache-control': cache ? 'max-age=86400' : 'no-cache',
   });
-  createReadStream(path).pipe(res);
+  // The headers are out, so a read error (the file went away after the stat)
+  // can only cut the response short. pipeline also closes the file when the
+  // browser hangs up mid-download, which pipe() would leave open.
+  pipeline(createReadStream(path), res, (error) => {
+    if (error) res.destroy();
+  });
 }
 
 /** IPv4 peers show up as ::ffff:a.b.c.d on a dual-stack socket. */

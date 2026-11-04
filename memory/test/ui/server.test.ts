@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -152,6 +152,25 @@ describe('ui server', () => {
     expect(res.headers.get('content-type')).toBe('text/markdown; charset=utf-8');
     expect(await res.text()).toBe('# 필터\n비우세요\n');
   });
+
+  // A file that passes the stat but cannot be opened stands in for one deleted
+  // between the two. Root can open it anyway, so the test means nothing there.
+  it.skipIf(process.getuid?.() === 0)(
+    'drops the response, and keeps running, when a file cannot be read',
+    async () => {
+      writeFileSync(join(manualsDir, 'Dryer.md'), '# 필터\n');
+      const indexer = new ManualIndexer(db, embedding, manualsDir);
+      await indexer.sync();
+      await start({ indexer });
+      const [manual] = listManuals(db);
+      chmodSync(join(manualsDir, 'Dryer.md'), 0o000);
+
+      await expect(
+        fetch(`${base}/api/manuals/${manual?.id}/file`).then((res) => res.text()),
+      ).rejects.toThrow();
+      expect((await fetch(`${base}/api/manuals`)).status).toBe(200);
+    },
+  );
 
   it('clears the index on reset and rebuilds it on reindex', async () => {
     writeFileSync(join(manualsDir, 'Dryer.md'), '# 필터\n비우세요\n');
