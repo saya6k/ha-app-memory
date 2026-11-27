@@ -6,18 +6,17 @@
 #   sh scripts/smoke.sh [image-tag]
 #
 # CI passes the tag it just built. With no argument the image is built here
-# first, which is what you want locally. Run it from a Linux host with docker;
-# on this Mac that means the `linux-test` container machine (see CLAUDE.md),
-# which is aarch64 only:
+# first, which is what you want locally. Run it wherever `docker` works; on
+# this Mac that is socktainer on Apple `container` (aarch64 only):
 #
-#   container machine run --root -n linux-test -- sh <repo>/scripts/smoke.sh
+#   sh <repo>/scripts/smoke.sh
 #
 # Env:
 #   CACHE_DIR  where the GGUF model and container /data live (default below).
 #              Keeping it outside the repo means repeat runs skip the ~296 MiB
 #              download.
-#   DOCKER_NET  extra `docker` network flags. Needed on the linux-test machine,
-#              where dockerd runs with --bridge=none: DOCKER_NET=--network=host
+#   DOCKER_NET  extra `docker` network flags (default --network=host, for
+#              hosts whose dockerd has no bridge; socktainer accepts it too)
 # ==============================================================================
 set -eu
 
