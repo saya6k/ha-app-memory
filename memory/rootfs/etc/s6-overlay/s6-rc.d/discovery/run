@@ -16,6 +16,30 @@ for _ in $(seq 1 900); do
     sleep 2
 done
 
+# Home Assistant reads an MCP server's tools when its entry loads and then only
+# every 30 minutes, so after an update the assistant would keep the previous
+# tool descriptions. Reload the MCP entries titled with the app's name, the
+# title both discovery and the manual setup give it; reloading one that
+# happens to share the name only reconnects it.
+reload_own_entries() {
+    local name entries id
+    local core="http://supervisor/core/api/config/config_entries/entry"
+    local auth="Authorization: Bearer ${SUPERVISOR_TOKEN}"
+    name="$(bashio::addon.name)"
+    if ! entries="$(curl -fsS -H "${auth}" "${core}?domain=mcp")"; then
+        bashio::log.warning "Could not list MCP entries; Home Assistant picks up new tools within 30 minutes."
+        return 0
+    fi
+    for id in $(jq -r --arg name "${name}" \
+        '.[] | select(.domain == "mcp" and .title == $name) | .entry_id' <<< "${entries}"); do
+        if curl -fsS -X POST -H "${auth}" "${core}/${id}/reload" > /dev/null; then
+            bashio::log.info "Reloaded MCP entry ${id} so Home Assistant reads this version's tools."
+        else
+            bashio::log.warning "Could not reload MCP entry ${id}; Home Assistant picks up new tools within 30 minutes."
+        fi
+    done
+}
+
 if ! bashio::supervisor.ping 2>/dev/null; then
     bashio::log.info "No Supervisor detected — skipping discovery announce."
     exit 0
@@ -27,5 +51,6 @@ else
     bashio::log.warning "Supervisor discovery announce failed (non-fatal)."
     bashio::log.warning "Add the endpoint manually if it does not appear: http://$(hostname):8099/mcp"
 fi
+reload_own_entries
 
 exit 0
